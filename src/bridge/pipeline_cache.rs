@@ -23,6 +23,11 @@ impl VulkanBridge {
     ) -> Result<super::types::MaterialPipeline, Error> {
         let vert_words = spv_bytes_to_words(&material.vertex_shader_spv);
         let frag_words = spv_bytes_to_words(&material.fragment_shader_spv);
+        let vk_cull_mode = match material.cull_mode {
+            rotex_types::CullMode::None => vk::CullModeFlags::NONE,
+            rotex_types::CullMode::Front => vk::CullModeFlags::FRONT,
+            rotex_types::CullMode::Back => vk::CullModeFlags::BACK,
+        };
         let vertex_entry = CString::new(material.vertex_entry.as_str()).map_err(|_| {
             Error::fatal(ErrorKind::Unsupported(
                 "Vertex shader entry contains interior null byte",
@@ -50,7 +55,9 @@ impl VulkanBridge {
                 ColorBlendState::default().with_attachment(ColorBlendAttachmentState::default()),
             )
             .with_rasterization_state(
-                RasterizationState::default().with_cull_mode(vk::CullModeFlags::NONE),
+                RasterizationState::default()
+                    .with_cull_mode(vk_cull_mode)
+                    .with_front_face(vk::FrontFace::COUNTER_CLOCKWISE),
             )
             .with_depth_stencil_state(if depth_mode.is_enabled() {
                 DepthStencilState::default()
@@ -88,6 +95,7 @@ impl VulkanBridge {
             material_id,
             vertex_layout_id,
             depth_mode,
+            render_pass,
         };
 
         if !self.material_pipelines.contains_key(&pipeline_key) {

@@ -6,7 +6,7 @@ license = "MIT"
 description = "A Vulkan backend for rotex_core"
 
 [dependencies]
-rotex-types = { version = "0.1.0" }
+rotex-types = { git = "https://github.com/rotexengine/rotex-types", branch = "staging" }
 ash = "0.38.0"
 ash-window = "0.13.0"
 raw-window-handle = "0.6.2"

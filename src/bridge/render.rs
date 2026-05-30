@@ -93,7 +93,7 @@ impl VulkanBridge {
                 });
             }
 
-            let render_pass_handle = {
+            let active_render_pass = {
                 let state = self.surface_state.as_ref().expect("checked");
                 let targets = if pass_uses_depth {
                     state
@@ -119,7 +119,7 @@ impl VulkanBridge {
 
             for idx in draw_list {
                 let instance = scene.instances[idx];
-                self.record_instance_draw(instance, pass_uses_depth, render_pass_handle)?;
+                self.record_instance_draw(instance, pass_uses_depth, active_render_pass)?;
             }
 
             self.command_buffer.end_render_pass(self.device.raw());
@@ -175,7 +175,7 @@ impl VulkanBridge {
         &mut self,
         instance: MeshInstanceDescriptor,
         pass_uses_depth: bool,
-        render_pass: vk::RenderPass,
+        active_render_pass: vk::RenderPass,
     ) -> Result<(), Error> {
         let (material_depth_enabled, material_texture) = {
             let material = self
@@ -199,7 +199,7 @@ impl VulkanBridge {
             instance.material,
             mesh_layout_id,
             depth_mode,
-            render_pass,
+            active_render_pass,
         )?;
         self.command_buffer
             .bind_graphics_pipeline(self.device.raw(), pipeline);

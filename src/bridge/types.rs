@@ -20,6 +20,7 @@ pub(super) struct MaterialPipelineKey {
     pub(super) material_id: MaterialId,
     pub(super) vertex_layout_id: VertexLayoutId,
     pub(super) depth_mode: DepthMode,
+    pub(super) render_pass: vk::RenderPass,
 }
 
 impl DepthMode {

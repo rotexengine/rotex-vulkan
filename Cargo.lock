@@ -210,8 +210,7 @@ dependencies = [
 [[package]]
 name = "rotex-types"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c85d23da4ccb37cd4c56aed1db7ecfeea2431e9d188bc0e394cfdb092a77b699"
+source = "git+https://github.com/rotexengine/rotex-types?branch=staging#20adfe21f56dda836bb4f7170c619f1279ba28c8"
 dependencies = [
  "raw-window-handle",
 ]
