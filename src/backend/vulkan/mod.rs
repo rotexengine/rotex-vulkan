@@ -25,6 +25,7 @@ pub use swapchain::{Surface, Swapchain};
 pub use sync::{Fence, Semaphore};
 
 use ash::vk;
+use std::cmp::Reverse;
 
 use crate::core::{DebugMessenger, Instance, InstanceOptions};
 use crate::error::{Error, ErrorKind, Severity};
@@ -41,18 +42,42 @@ impl VulkanInstance {
     }
 
     pub(crate) fn request_device(&self, desc: DeviceDescriptor) -> Result<VulkanDevice, Error> {
-        let adapter = self
-            .raw
-            .enumerate_adapters()
-            .into_iter()
-            .next()
-            .ok_or(Error {
+        let mut adapters = self.raw.enumerate_adapters();
+        if adapters.is_empty() {
+            return Err(Error {
                 kind: ErrorKind::NoCompatibleDevice,
                 severity: Severity::Fatal,
-            })?;
+            });
+        }
+        adapters.sort_by_key(|adapter| Reverse(adapter.selection_score()));
 
-        let device = adapter.request_device(&self.raw, desc)?;
-        Ok(VulkanDevice { raw: device })
+        let mut last_error = None;
+        for adapter in adapters {
+            if !adapter.supports_queue_requests(&self.raw, &desc.queues) {
+                continue;
+            }
+            if desc.enable_swapchain && !adapter.has_swapchain_extension(&self.raw)? {
+                continue;
+            }
+            match adapter.request_device(&self.raw, desc.clone()) {
+                Ok(device) => {
+                    eprintln!(
+                        "[vulkan] selected adapter: {} ({:?})",
+                        adapter.name(),
+                        adapter.device_type()
+                    );
+                    return Ok(VulkanDevice { raw: device });
+                }
+                Err(err) => {
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or(Error {
+            kind: ErrorKind::NoCompatibleDevice,
+            severity: Severity::Fatal,
+        }))
     }
 
     pub(crate) fn create_surface_from_raw(&self, raw_surface: vk::SurfaceKHR) -> VulkanSurface {

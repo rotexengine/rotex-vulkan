@@ -3,15 +3,152 @@ use std::collections::HashSet;
 use ash::vk;
 
 use super::{VulkanBridge, types::VertexLayoutId};
-use crate::backend::vulkan::{Device, RotexBuffer};
-use crate::error::{Error, ErrorKind};
+use crate::backend::vulkan::{Device, ImageDescriptor, RotexBuffer, RotexImage, RotexSampler, SamplerDescriptor};
+use crate::error::{Error, ErrorKind, vk_error};
 use rotex_types::resource::{
     CreatedResources, IndexFormat, MaterialId, MeshDescriptor, MeshId, ResourceBatchCreate,
     ResourceBatchUpdate, ResourceCreateDescriptor, ResourceHandle, ResourceUpdateDescriptor,
-    TextureId, VertexBufferLayout, VertexFormat,
+    TextureDescriptor, TextureFormat, TextureId, VertexBufferLayout, VertexFormat,
 };
 
 impl VulkanBridge {
+    pub(super) fn ensure_default_texture(&mut self) -> Result<&super::types::TextureResource, Error> {
+        if self.default_texture.is_none() {
+            let fallback_descriptor = TextureDescriptor {
+                width: 1,
+                height: 1,
+                format: TextureFormat::Rgba8Unorm,
+                data: vec![255, 255, 255, 255],
+            };
+            self.default_texture = Some(self.create_texture_resource(&fallback_descriptor)?);
+        }
+        Ok(self.default_texture.as_ref().expect("default texture initialized"))
+    }
+
+    pub(super) fn create_texture_resource(
+        &mut self,
+        desc: &TextureDescriptor,
+    ) -> Result<super::types::TextureResource, Error> {
+        validate_texture_descriptor(desc)?;
+        let staging_buffer = RotexBuffer::new(
+            self.instance.raw(),
+            self.device.raw(),
+            desc.data.len() as vk::DeviceSize,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        write_bytes(self.device.raw(), &staging_buffer, &desc.data)?;
+
+        let mut image = RotexImage::new(
+            self.instance.raw(),
+            self.device.raw(),
+            ImageDescriptor::default(
+                map_texture_format(desc.format),
+                vk::Extent3D {
+                    width: desc.width,
+                    height: desc.height,
+                    depth: 1,
+                },
+                vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            ),
+        )?;
+        let sampler = RotexSampler::new(
+            self.device.raw(),
+            SamplerDescriptor::default().with_filters(vk::Filter::LINEAR, vk::Filter::LINEAR),
+        )?;
+
+        if let Err(err) = self.upload_staging_texture(&staging_buffer, &mut image, desc.width, desc.height) {
+            sampler.destroy(self.device.raw());
+            image.destroy(self.device.raw());
+            staging_buffer.destroy(self.device.raw());
+            return Err(err);
+        }
+        staging_buffer.destroy(self.device.raw());
+
+        let layouts = [self.texture_set_layout.handle()];
+        let mut descriptor_sets = match self
+            .texture_descriptor_pool
+            .allocate_sets(self.device.raw(), &layouts)
+        {
+            Ok(sets) => sets,
+            Err(err) => {
+                sampler.destroy(self.device.raw());
+                image.destroy(self.device.raw());
+                return Err(err);
+            }
+        };
+        let descriptor_set = descriptor_sets.pop().expect("one descriptor set");
+        descriptor_set.write_image_sampler(
+            self.device.raw(),
+            0,
+            image.view(),
+            sampler.handle(),
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        );
+
+        Ok(super::types::TextureResource {
+            descriptor: desc.clone(),
+            image,
+            sampler,
+            descriptor_set,
+        })
+    }
+
+    fn upload_staging_texture(
+        &mut self,
+        staging_buffer: &RotexBuffer,
+        image: &mut RotexImage,
+        width: u32,
+        height: u32,
+    ) -> Result<(), Error> {
+        self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
+        self.in_flight_fence.reset(self.device.raw())?;
+        unsafe {
+            self.device.raw().logical_device().reset_command_buffer(
+                self.command_buffer.handle(),
+                vk::CommandBufferResetFlags::empty(),
+            )
+        }
+        .map_err(vk_error)?;
+        self.command_buffer.begin(
+            self.device.raw(),
+            vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+        )?;
+        image.transition_layout(
+            self.device.raw(),
+            &self.command_buffer,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        );
+        self.command_buffer.copy_buffer_to_image(
+            self.device.raw(),
+            staging_buffer.handle(),
+            image.handle(),
+            width,
+            height,
+        );
+        image.transition_layout(
+            self.device.raw(),
+            &self.command_buffer,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        );
+        self.command_buffer.end(self.device.raw())?;
+
+        let command_buffers = [self.command_buffer.handle()];
+        let submit = vk::SubmitInfo::default().command_buffers(&command_buffers);
+        let queue = self.device.raw().get_queue(self.graphics_queue_index, 0);
+        unsafe {
+            self.device.raw().logical_device().queue_submit(
+                queue,
+                &[submit],
+                self.in_flight_fence.handle(),
+            )
+        }
+        .map_err(vk_error)?;
+        self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
+        Ok(())
+    }
+
     pub(super) fn create_mesh_resource(
         &self,
         desc: &MeshDescriptor,
@@ -73,8 +210,8 @@ impl VulkanBridge {
                 ResourceCreateDescriptor::Texture(texture) => {
                     let id = TextureId(self.next_texture_id);
                     self.next_texture_id += 1;
-                    self.textures
-                        .insert(id, super::types::TextureResource { descriptor: texture });
+                    let resource = self.create_texture_resource(&texture)?;
+                    self.textures.insert(id, resource);
                     handles.push(ResourceHandle::Texture(id));
                 }
                 ResourceCreateDescriptor::Material(material) => {
@@ -96,7 +233,9 @@ impl VulkanBridge {
         if descriptor.updates.iter().any(|update| {
             matches!(
                 update,
-                ResourceUpdateDescriptor::Mesh { .. } | ResourceUpdateDescriptor::Material { .. }
+                ResourceUpdateDescriptor::Mesh { .. }
+                    | ResourceUpdateDescriptor::Texture { .. }
+                    | ResourceUpdateDescriptor::Material { .. }
             )
         }) {
             self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
@@ -132,11 +271,18 @@ impl VulkanBridge {
                     self.meshes.insert(id, resource);
                 }
                 ResourceUpdateDescriptor::Texture { id, data } => {
-                    let texture = self
+                    let old_texture_descriptor = self
                         .textures
-                        .get_mut(&id)
+                        .get(&id)
                         .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
-                    texture.descriptor.data = data;
+                    let mut updated_texture_descriptor = old_texture_descriptor.descriptor.clone();
+                    updated_texture_descriptor.data = data;
+                    let updated_texture = self.create_texture_resource(&updated_texture_descriptor)?;
+                    let previous = self
+                        .textures
+                        .insert(id, updated_texture)
+                        .expect("texture must exist after get check");
+                    previous.destroy(self.device.raw(), &self.texture_descriptor_pool);
                 }
                 ResourceUpdateDescriptor::Material {
                     id,
@@ -253,6 +399,37 @@ fn vertex_format_tag(format: VertexFormat) -> u8 {
         VertexFormat::Float32x4 => 4,
         VertexFormat::Uint32 => 5,
     }
+}
+
+fn map_texture_format(format: TextureFormat) -> vk::Format {
+    match format {
+        TextureFormat::Rgba8Unorm => vk::Format::R8G8B8A8_UNORM,
+    }
+}
+
+fn expected_texture_bytes(desc: &TextureDescriptor) -> Option<usize> {
+    (desc.width as usize)
+        .checked_mul(desc.height as usize)?
+        .checked_mul(4)
+}
+
+fn validate_texture_descriptor(desc: &TextureDescriptor) -> Result<(), Error> {
+    if desc.width == 0 || desc.height == 0 {
+        return Err(Error::fatal(ErrorKind::Unsupported(
+            "Texture dimensions must be greater than zero",
+        )));
+    }
+    let Some(expected_bytes) = expected_texture_bytes(desc) else {
+        return Err(Error::fatal(ErrorKind::Unsupported(
+            "Texture dimensions overflow expected byte size",
+        )));
+    };
+    if desc.data.len() != expected_bytes {
+        return Err(Error::fatal(ErrorKind::Unsupported(
+            "Texture data size does not match width*height*4",
+        )));
+    }
+    Ok(())
 }
 
 fn compute_vertex_layout_id(layout: &VertexBufferLayout) -> VertexLayoutId {

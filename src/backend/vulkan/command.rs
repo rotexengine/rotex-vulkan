@@ -77,6 +77,25 @@ impl CommandBuffer {
         }
     }
 
+    pub fn bind_graphics_descriptor_sets(
+        &self,
+        device: &Device,
+        pipeline_layout: vk::PipelineLayout,
+        first_set: u32,
+        descriptor_sets: &[vk::DescriptorSet],
+    ) {
+        unsafe {
+            device.logical_device().cmd_bind_descriptor_sets(
+                self.handle,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline_layout,
+                first_set,
+                descriptor_sets,
+                &[],
+            );
+        }
+    }
+
     pub fn bind_vertex_buffer(&self, device: &Device, buffer: vk::Buffer) {
         unsafe {
             device
@@ -145,6 +164,42 @@ impl CommandBuffer {
                 &[],
                 &[],
                 &[barrier],
+            );
+        }
+    }
+
+    pub fn copy_buffer_to_image(
+        &self,
+        device: &Device,
+        buffer: vk::Buffer,
+        image: vk::Image,
+        width: u32,
+        height: u32,
+    ) {
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .base_array_layer(0)
+                    .layer_count(1),
+            )
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
+        unsafe {
+            device.logical_device().cmd_copy_buffer_to_image(
+                self.handle,
+                buffer,
+                image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
             );
         }
     }

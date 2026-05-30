@@ -64,6 +64,80 @@ impl Adapter {
         self.handle
     }
 
+    pub fn selection_score(&self) -> u32 {
+        match self.device_type {
+            vk::PhysicalDeviceType::DISCRETE_GPU => 400,
+            vk::PhysicalDeviceType::INTEGRATED_GPU => 300,
+            vk::PhysicalDeviceType::VIRTUAL_GPU => 200,
+            vk::PhysicalDeviceType::CPU => 100,
+            _ => 0,
+        }
+    }
+
+    pub fn has_swapchain_extension(&self, instance: &Instance) -> Result<bool, Error> {
+        let extensions = unsafe {
+            instance
+                .instance()
+                .enumerate_device_extension_properties(self.handle)
+        }
+        .map_err(vk_error)?;
+        Ok(extensions.iter().any(|ext| unsafe {
+            CStr::from_ptr(ext.extension_name.as_ptr()) == vk::KHR_SWAPCHAIN_NAME
+        }))
+    }
+
+    pub fn supports_queue_requests(&self, instance: &Instance, queues: &[QueueRequest]) -> bool {
+        let queue_families = unsafe {
+            instance
+                .instance()
+                .get_physical_device_queue_family_properties(self.handle)
+        };
+        let graphics_index = queue_families
+            .iter()
+            .enumerate()
+            .find(|(_, family)| family.queue_flags.contains(vk::QueueFlags::GRAPHICS))
+            .map(|(index, _)| index as u32);
+        let compute_index = queue_families
+            .iter()
+            .enumerate()
+            .find(|(_, family)| family.queue_flags.contains(vk::QueueFlags::COMPUTE))
+            .map(|(index, _)| index as u32);
+        let transfer_any_index = queue_families
+            .iter()
+            .enumerate()
+            .find(|(_, family)| family.queue_flags.contains(vk::QueueFlags::TRANSFER))
+            .map(|(index, _)| index as u32);
+        let transfer_dedicated_index = queue_families
+            .iter()
+            .enumerate()
+            .find(|(_, family)| {
+                family.queue_flags.contains(vk::QueueFlags::TRANSFER)
+                    && !family.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+                    && !family.queue_flags.contains(vk::QueueFlags::COMPUTE)
+            })
+            .map(|(index, _)| index as u32);
+
+        let mut has_request = false;
+        for request in queues {
+            if request.count == 0 {
+                continue;
+            }
+            has_request = true;
+            let family_index = match request.category {
+                QueueCategory::Graphics => graphics_index,
+                QueueCategory::Compute => compute_index,
+                QueueCategory::Transfer => transfer_dedicated_index
+                    .or(graphics_index)
+                    .or(transfer_any_index)
+                    .or(compute_index),
+            };
+            if family_index.is_none() {
+                return false;
+            }
+        }
+        has_request
+    }
+
     pub fn request_device(
         &self,
         instance: &Instance,

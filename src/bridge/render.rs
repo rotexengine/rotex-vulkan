@@ -177,13 +177,14 @@ impl VulkanBridge {
         pass_uses_depth: bool,
         render_pass: vk::RenderPass,
     ) -> Result<(), Error> {
-        let depth_for_material = pass_uses_depth
-            && self
+        let (material_depth_enabled, material_texture) = {
+            let material = self
                 .materials
                 .get(&instance.material)
-                .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?
-                .descriptor
-                .enable_depth;
+                .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
+            (material.descriptor.enable_depth, material.descriptor.texture)
+        };
+        let depth_for_material = pass_uses_depth && material_depth_enabled;
         let mesh_layout_id = self
             .meshes
             .get(&instance.mesh)
@@ -194,18 +195,33 @@ impl VulkanBridge {
         } else {
             DepthMode::Disabled
         };
-        let pipeline = self.pipeline_handle_for(
+        let (pipeline, pipeline_layout) = self.pipeline_handle_for(
             instance.material,
             mesh_layout_id,
             depth_mode,
             render_pass,
         )?;
+        self.command_buffer
+            .bind_graphics_pipeline(self.device.raw(), pipeline);
+        let descriptor_set = if let Some(texture_id) = material_texture {
+            if let Some(texture) = self.textures.get(&texture_id) {
+                texture.descriptor_set.handle()
+            } else {
+                self.ensure_default_texture()?.descriptor_set.handle()
+            }
+        } else {
+            self.ensure_default_texture()?.descriptor_set.handle()
+        };
+        self.command_buffer.bind_graphics_descriptor_sets(
+            self.device.raw(),
+            pipeline_layout,
+            0,
+            &[descriptor_set],
+        );
         let mesh = self
             .meshes
             .get(&instance.mesh)
             .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
-        self.command_buffer
-            .bind_graphics_pipeline(self.device.raw(), pipeline);
         self.command_buffer
             .bind_vertex_buffer(self.device.raw(), mesh.vertex_buffer.handle());
         self.command_buffer.bind_index_buffer(

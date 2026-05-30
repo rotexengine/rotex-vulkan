@@ -161,7 +161,15 @@ impl VulkanBridge {
             mesh.vertex_buffer.destroy(self.device.raw());
             mesh.index_buffer.destroy(self.device.raw());
         }
+        for (_, texture) in self.textures.drain() {
+            texture.destroy(self.device.raw(), &self.texture_descriptor_pool);
+        }
+        if let Some(default_texture) = self.default_texture.take() {
+            default_texture.destroy(self.device.raw(), &self.texture_descriptor_pool);
+        }
         self.destroy_surface_state();
+        self.texture_descriptor_pool.destroy(self.device.raw());
+        self.texture_set_layout.destroy(self.device.raw());
         self.command_pool.destroy(self.device.raw());
         self.in_flight_fence.destroy(self.device.raw());
         self.device.destroy();

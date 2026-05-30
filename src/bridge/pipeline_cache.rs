@@ -23,7 +23,8 @@ impl VulkanBridge {
         let frag_words = spv_bytes_to_words(&material.fragment_shader_spv);
         let vert = ShaderModule::new(self.device.raw(), &vert_words)?;
         let frag = ShaderModule::new(self.device.raw(), &frag_words)?;
-        let layout = GraphicsPipelineLayout::new(self.device.raw(), &[], &[])?;
+        let set_layouts = [self.texture_set_layout.handle()];
+        let layout = GraphicsPipelineLayout::new(self.device.raw(), &set_layouts, &[])?;
         let pipeline = GraphicsPipelineBuilder::new()
             .with_shader_stage(ShaderStageDescriptor::new(vk::ShaderStageFlags::VERTEX, &vert))
             .with_shader_stage(ShaderStageDescriptor::new(vk::ShaderStageFlags::FRAGMENT, &frag))
@@ -57,7 +58,7 @@ impl VulkanBridge {
         vertex_layout_id: VertexLayoutId,
         depth_mode: DepthMode,
         render_pass: vk::RenderPass,
-    ) -> Result<vk::Pipeline, Error> {
+    ) -> Result<(vk::Pipeline, vk::PipelineLayout), Error> {
         let extent = self
             .surface_state
             .as_ref()
@@ -97,12 +98,11 @@ impl VulkanBridge {
                 .insert(pipeline_key);
         }
 
-        Ok(self
+        let pipeline = self
             .material_pipelines
             .get(&pipeline_key)
-            .expect("pipeline must exist")
-            .pipeline
-            .handle())
+            .expect("pipeline must exist");
+        Ok((pipeline.pipeline.handle(), pipeline.layout.handle()))
     }
 
     pub(super) fn invalidate_material_pipelines(&mut self, material_id: MaterialId) {

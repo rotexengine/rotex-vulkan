@@ -7,7 +7,10 @@ mod types;
 
 use std::collections::{HashMap, HashSet};
 
-use crate::backend::vulkan::{CommandBuffer, CommandPool, Fence, VulkanDevice, VulkanInstance};
+use crate::backend::vulkan::{
+    CommandBuffer, CommandPool, DescriptorPool, DescriptorSetLayout, Fence, VulkanDevice,
+    VulkanInstance,
+};
 use crate::error::{Error, ErrorKind};
 use rotex_types::resource::{MaterialId, MeshId, TextureId, VertexBufferLayout};
 
@@ -27,6 +30,9 @@ pub struct VulkanBridge {
     meshes: HashMap<MeshId, MeshResource>,
     materials: HashMap<MaterialId, MaterialResource>,
     textures: HashMap<TextureId, TextureResource>,
+    default_texture: Option<TextureResource>,
+    texture_descriptor_pool: DescriptorPool,
+    texture_set_layout: DescriptorSetLayout,
     material_pipelines: HashMap<MaterialPipelineKey, MaterialPipeline>,
     pipelines_by_material: HashMap<MaterialId, HashSet<MaterialPipelineKey>>,
     vertex_layouts: HashMap<VertexLayoutId, VertexBufferLayout>,

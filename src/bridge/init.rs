@@ -5,8 +5,8 @@ use ash::vk;
 
 use super::VulkanBridge;
 use crate::backend::vulkan::{
-    CommandPool, DeviceDescriptor, Fence, QueueCategory as BackendQueueCategory,
-    QueueRequest as BackendQueueRequest, VulkanInstance,
+    CommandPool, DescriptorPool, DescriptorSetLayout, DeviceDescriptor, Fence,
+    QueueCategory as BackendQueueCategory, QueueRequest as BackendQueueRequest, VulkanInstance,
 };
 use crate::core::InstanceOptions;
 use crate::error::{Error, ErrorKind};
@@ -52,6 +52,17 @@ impl VulkanBridge {
         let mut command_buffers = command_pool.allocate_buffers(device.raw(), 1)?;
         let command_buffer = command_buffers.pop().expect("one command buffer");
         let in_flight_fence = Fence::new(device.raw(), true)?;
+        let texture_layout_bindings = [vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)];
+        let texture_set_layout = DescriptorSetLayout::new(device.raw(), &texture_layout_bindings)?;
+        let texture_pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 4096,
+        }];
+        let texture_descriptor_pool = DescriptorPool::new(device.raw(), 4096, &texture_pool_sizes)?;
         let graphics_queue_index = device
             .raw()
             .queues()
@@ -70,6 +81,9 @@ impl VulkanBridge {
             meshes: HashMap::new(),
             materials: HashMap::new(),
             textures: HashMap::new(),
+            default_texture: None,
+            texture_descriptor_pool,
+            texture_set_layout,
             material_pipelines: HashMap::new(),
             pipelines_by_material: HashMap::new(),
             vertex_layouts: HashMap::new(),

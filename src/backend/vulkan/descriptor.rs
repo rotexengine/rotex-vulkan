@@ -38,6 +38,30 @@ impl DescriptorSet {
             device.logical_device().update_descriptor_sets(&write, &[]);
         }
     }
+
+    pub fn write_image_sampler(
+        &self,
+        device: &Device,
+        binding: u32,
+        image_view: vk::ImageView,
+        sampler: vk::Sampler,
+        image_layout: vk::ImageLayout,
+    ) {
+        let image_info = [vk::DescriptorImageInfo::default()
+            .image_layout(image_layout)
+            .image_view(image_view)
+            .sampler(sampler)];
+
+        let write = [vk::WriteDescriptorSet::default()
+            .dst_set(self.handle)
+            .dst_binding(binding)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&image_info)];
+
+        unsafe {
+            device.logical_device().update_descriptor_sets(&write, &[]);
+        }
+    }
 }
 
 pub struct DescriptorPool {
@@ -89,6 +113,19 @@ impl DescriptorPool {
 
     pub fn handle(&self) -> vk::DescriptorPool {
         self.handle
+    }
+
+    pub fn free_sets(&self, device: &Device, sets: &[DescriptorSet]) -> Result<(), Error> {
+        if sets.is_empty() {
+            return Ok(());
+        }
+        let set_handles = sets.iter().map(|set| set.handle).collect::<Vec<_>>();
+        unsafe {
+            device
+                .logical_device()
+                .free_descriptor_sets(self.handle, &set_handles)
+        }
+        .map_err(vk_error)
     }
 
     pub fn destroy(&self, device: &Device) {
