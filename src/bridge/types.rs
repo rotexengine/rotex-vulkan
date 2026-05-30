@@ -1,0 +1,78 @@
+use ash::vk;
+
+use crate::backend::vulkan::{
+    Device, Framebuffer, GraphicsPipeline, GraphicsPipelineLayout, RenderPass, RotexBuffer,
+    RotexImage, Semaphore, VulkanSurface, VulkanSwapchain,
+};
+use rotex_types::resource::{MaterialDescriptor, MaterialId, TextureDescriptor};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct VertexLayoutId(pub(super) u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum DepthMode {
+    Disabled,
+    Enabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct MaterialPipelineKey {
+    pub(super) material_id: MaterialId,
+    pub(super) vertex_layout_id: VertexLayoutId,
+    pub(super) depth_mode: DepthMode,
+}
+
+impl DepthMode {
+    pub(super) fn is_enabled(self) -> bool {
+        matches!(self, Self::Enabled)
+    }
+}
+
+pub(super) struct MeshResource {
+    pub(super) vertex_buffer: RotexBuffer,
+    pub(super) index_buffer: RotexBuffer,
+    pub(super) index_type: vk::IndexType,
+    pub(super) index_count: u32,
+    pub(super) vertex_layout_id: VertexLayoutId,
+}
+
+pub(super) struct MaterialResource {
+    pub(super) descriptor: MaterialDescriptor,
+}
+
+pub(super) struct TextureResource {
+    pub(super) descriptor: TextureDescriptor,
+}
+
+pub(super) struct MaterialPipeline {
+    pub(super) layout: GraphicsPipelineLayout,
+    pub(super) pipeline: GraphicsPipeline,
+}
+
+pub(super) struct RenderTargets {
+    pub(super) render_pass: RenderPass,
+    pub(super) framebuffers: Vec<Framebuffer>,
+    pub(super) depth_image: Option<RotexImage>,
+}
+
+impl RenderTargets {
+    pub(super) fn destroy(self, device: &Device) {
+        for framebuffer in self.framebuffers {
+            framebuffer.destroy(device);
+        }
+        self.render_pass.destroy(device);
+        if let Some(depth_image) = self.depth_image {
+            depth_image.destroy(device);
+        }
+    }
+}
+
+pub(super) struct SurfaceState {
+    pub(super) surface: VulkanSurface,
+    pub(super) swapchain: VulkanSwapchain,
+    pub(super) extent: vk::Extent2D,
+    pub(super) color_targets: RenderTargets,
+    pub(super) depth_targets: Option<RenderTargets>,
+    pub(super) image_available: Semaphore,
+    pub(super) render_finished: Vec<Semaphore>,
+}

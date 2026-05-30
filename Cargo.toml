@@ -1,0 +1,10 @@
+[package]
+name = "rotex_vulkan"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rotex_types = { git = "https://github.com/rotexengine/rotex_types.git", branch = "main" }
+ash = "0.38.0"
+ash-window = "0.13.0"
+raw-window-handle = "0.6.2"
