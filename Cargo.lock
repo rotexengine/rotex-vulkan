@@ -209,15 +209,16 @@ dependencies = [
 
 [[package]]
 name = "rotex-types"
-version = "0.1.0"
-source = "git+https://github.com/rotexengine/rotex-types?branch=staging#20adfe21f56dda836bb4f7170c619f1279ba28c8"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "427b76e9e67b4d4f00a30d0f80c47c4199ada463aea1351df692fc375e0fe14a"
 dependencies = [
  "raw-window-handle",
 ]
 
 [[package]]
 name = "rotex-vulkan"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ash",
  "ash-window",

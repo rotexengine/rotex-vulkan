@@ -1,12 +1,13 @@
 [package]
 name = "rotex-vulkan"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 description = "A Vulkan backend for rotex_core"
+repository = "https://github.com/rotexengine/rotex-vulkan"
 
 [dependencies]
-rotex-types = { git = "https://github.com/rotexengine/rotex-types", branch = "staging" }
+rotex-types = { version = "0.1.1" }
 ash = "0.38.0"
 ash-window = "0.13.0"
 raw-window-handle = "0.6.2"
