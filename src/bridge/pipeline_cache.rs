@@ -1,3 +1,5 @@
+use std::ffi::CString;
+
 use ash::vk;
 
 use super::{VulkanBridge, surface_not_attached_error};
@@ -21,13 +23,29 @@ impl VulkanBridge {
     ) -> Result<super::types::MaterialPipeline, Error> {
         let vert_words = spv_bytes_to_words(&material.vertex_shader_spv);
         let frag_words = spv_bytes_to_words(&material.fragment_shader_spv);
+        let vertex_entry = CString::new(material.vertex_entry.as_str()).map_err(|_| {
+            Error::fatal(ErrorKind::Unsupported(
+                "Vertex shader entry contains interior null byte",
+            ))
+        })?;
+        let fragment_entry = CString::new(material.fragment_entry.as_str()).map_err(|_| {
+            Error::fatal(ErrorKind::Unsupported(
+                "Fragment shader entry contains interior null byte",
+            ))
+        })?;
         let vert = ShaderModule::new(self.device.raw(), &vert_words)?;
         let frag = ShaderModule::new(self.device.raw(), &frag_words)?;
         let set_layouts = [self.texture_set_layout.handle()];
         let layout = GraphicsPipelineLayout::new(self.device.raw(), &set_layouts, &[])?;
         let pipeline = GraphicsPipelineBuilder::new()
-            .with_shader_stage(ShaderStageDescriptor::new(vk::ShaderStageFlags::VERTEX, &vert))
-            .with_shader_stage(ShaderStageDescriptor::new(vk::ShaderStageFlags::FRAGMENT, &frag))
+            .with_shader_stage(
+                ShaderStageDescriptor::new(vk::ShaderStageFlags::VERTEX, &vert)
+                    .with_entry_name(vertex_entry.as_c_str()),
+            )
+            .with_shader_stage(
+                ShaderStageDescriptor::new(vk::ShaderStageFlags::FRAGMENT, &frag)
+                    .with_entry_name(fragment_entry.as_c_str()),
+            )
             .with_color_blend_state(
                 ColorBlendState::default().with_attachment(ColorBlendAttachmentState::default()),
             )

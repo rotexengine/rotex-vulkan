@@ -210,7 +210,7 @@ dependencies = [
 [[package]]
 name = "rotex_types"
 version = "0.1.0"
-source = "git+https://github.com/rotexengine/rotex_types.git?branch=main#c47dde8ed6ab0328fe373b59c18d2b45ccaaa76d"
+source = "git+https://github.com/rotexengine/rotex_types.git?branch=main#2332e73bd5926ad0155820fff488000a0c324c0d"
 dependencies = [
  "raw-window-handle",
 ]
