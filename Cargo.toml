@@ -2,9 +2,11 @@
 name = "rotex-vulkan"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "A Vulkan backend for rotex_core"
 
 [dependencies]
-rotex_types = { git = "https://github.com/rotexengine/rotex-types.git", branch = "main" }
+rotex-types = { version = "0.1.0" }
 ash = "0.38.0"
 ash-window = "0.13.0"
 raw-window-handle = "0.6.2"
