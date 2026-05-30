@@ -208,21 +208,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "rotex_types"
-version = "0.1.0"
-source = "git+https://github.com/rotexengine/rotex_types.git?branch=main#2332e73bd5926ad0155820fff488000a0c324c0d"
-dependencies = [
- "raw-window-handle",
-]
-
-[[package]]
-name = "rotex_vulkan"
+name = "rotex-vulkan"
 version = "0.1.0"
 dependencies = [
  "ash",
  "ash-window",
  "raw-window-handle",
  "rotex_types",
+]
+
+[[package]]
+name = "rotex_types"
+version = "0.1.0"
+source = "git+https://github.com/rotexengine/rotex-types.git?branch=main#e9e870933229c1577d26cfb33abc209bba6d7b78"
+dependencies = [
+ "raw-window-handle",
 ]
 
 [[package]]
