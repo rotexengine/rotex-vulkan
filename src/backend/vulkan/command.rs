@@ -6,15 +6,22 @@ use super::framebuffer::Framebuffer;
 use super::pass::RenderPass;
 use crate::error::{Error, ErrorKind, Severity, vk_error};
 
+/// Primary command buffer for recording draw and transfer commands.
 pub struct CommandBuffer {
     pub(crate) handle: vk::CommandBuffer,
 }
 
 impl CommandBuffer {
+    /// `VkCommandBuffer` handle.
     pub fn handle(&self) -> vk::CommandBuffer {
         self.handle
     }
 
+    /// Begins recording with `flags`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkBeginCommandBuffer` fails.
     pub fn begin(&self, device: &Device, flags: vk::CommandBufferUsageFlags) -> Result<(), Error> {
         let begin_info = vk::CommandBufferBeginInfo::default().flags(flags);
 
@@ -26,6 +33,11 @@ impl CommandBuffer {
         .map_err(vk_error)
     }
 
+    /// Begins a render pass instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds when `clear_values` length does not match attachment count.
     pub fn begin_render_pass(
         &self,
         device: &Device,
@@ -57,16 +69,23 @@ impl CommandBuffer {
         }
     }
 
+    /// Ends the active render pass.
     pub fn end_render_pass(&self, device: &Device) {
         unsafe {
             device.logical_device().cmd_end_render_pass(self.handle);
         }
     }
 
+    /// Ends command buffer recording.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkEndCommandBuffer` fails.
     pub fn end(&self, device: &Device) -> Result<(), Error> {
         unsafe { device.logical_device().end_command_buffer(self.handle) }.map_err(vk_error)
     }
 
+    /// Binds a graphics `pipeline`.
     pub fn bind_graphics_pipeline(&self, device: &Device, pipeline: vk::Pipeline) {
         unsafe {
             device.logical_device().cmd_bind_pipeline(
@@ -77,6 +96,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Binds `descriptor_sets` for graphics at `first_set`.
     pub fn bind_graphics_descriptor_sets(
         &self,
         device: &Device,
@@ -96,6 +116,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Binds a vertex `buffer` at binding 0.
     pub fn bind_vertex_buffer(&self, device: &Device, buffer: vk::Buffer) {
         unsafe {
             device
@@ -104,6 +125,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Issues a non-indexed draw for `vertex_count` vertices.
     pub fn draw(&self, device: &Device, vertex_count: u32) {
         unsafe {
             device
@@ -112,6 +134,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Sets the dynamic viewport.
     pub fn set_viewport(&self, device: &Device, viewport: vk::Viewport) {
         unsafe {
             device
@@ -120,6 +143,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Sets the dynamic scissor rectangle.
     pub fn set_scissor(&self, device: &Device, scissor: vk::Rect2D) {
         unsafe {
             device
@@ -128,6 +152,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Inserts a barrier transitioning `image` from `old_layout` to `new_layout`.
     pub fn transition_image_layout(
         &self,
         device: &Device,
@@ -168,6 +193,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Copies `buffer` into `image` (transfer destination layout).
     pub fn copy_buffer_to_image(
         &self,
         device: &Device,
@@ -238,6 +264,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Binds an index `buffer` at `offset` with `index_type`.
     pub fn bind_index_buffer(
         &self,
         device: &Device,
@@ -255,6 +282,7 @@ impl CommandBuffer {
         }
     }
 
+    /// Issues an indexed draw.
     pub fn draw_indexed(
         &self,
         device: &Device,
@@ -277,11 +305,17 @@ impl CommandBuffer {
     }
 }
 
+/// Pool for allocating [`CommandBuffer`] handles.
 pub struct CommandPool {
     pub(crate) handle: vk::CommandPool,
 }
 
 impl CommandPool {
+    /// Creates a resettable pool on the first graphics queue family.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if no graphics queue exists or pool creation fails.
     pub fn new(device: &Device) -> Result<Self, Error> {
         let graphics_queue = device
             .queues()
@@ -302,6 +336,11 @@ impl CommandPool {
         Ok(Self { handle })
     }
 
+    /// Allocates `count` primary command buffers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if allocation fails.
     pub fn allocate_buffers(
         &self,
         device: &Device,
@@ -321,6 +360,7 @@ impl CommandPool {
             .collect())
     }
 
+    /// Destroys the pool and all buffers allocated from it.
     pub fn destroy(&self, device: &Device) {
         unsafe {
             device.logical_device().destroy_command_pool(self.handle, None);

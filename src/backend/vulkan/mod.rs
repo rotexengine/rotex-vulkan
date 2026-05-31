@@ -1,9 +1,11 @@
+//! Vulkan resource wrappers used by [`crate::VulkanBridge`] and direct callers.
+
 mod buffer;
 mod command;
 mod descriptor;
 mod device;
 mod framebuffer;
-mod graphics_pipeline;
+pub(crate) mod graphics_pipeline;
 mod image;
 mod pass;
 mod swapchain;
@@ -15,9 +17,11 @@ pub use descriptor::{DescriptorPool, DescriptorSet};
 pub use device::{Adapter, Device, DeviceDescriptor, QueueAllocation, QueueCategory, QueueRequest};
 pub use framebuffer::{Framebuffer, FramebufferBuilder};
 pub use graphics_pipeline::{
-    ColorBlendAttachmentState, ColorBlendState, DepthStencilState, DescriptorSetLayout,
-    GraphicsPipeline, GraphicsPipelineBuilder, GraphicsPipelineLayout, RasterizationState,
+    DescriptorSetLayout, GraphicsPipeline, GraphicsPipelineBuilder, GraphicsPipelineLayout,
     ShaderModule, ShaderStageDescriptor, Vertex, VertexInputDescriptor,
+};
+pub use graphics_pipeline::state::{
+    ColorBlendAttachmentState, ColorBlendState, DepthStencilState, RasterizationState,
 };
 pub use image::{ImageDescriptor, RotexImage, RotexSampler, SamplerDescriptor};
 pub use pass::{RenderPass, RenderPassBuilder, SubpassBlueprint};

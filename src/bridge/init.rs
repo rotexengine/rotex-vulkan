@@ -17,6 +17,11 @@ use rotex_types::{
 };
 
 impl VulkanBridge {
+    /// Creates a bridge from rotex instance and device descriptors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if instance creation, device selection, or required Vulkan objects fail.
     pub fn new(
         instance_descriptor: FrontendInstanceDescriptor,
         device_descriptor: FrontendDeviceDescriptor,

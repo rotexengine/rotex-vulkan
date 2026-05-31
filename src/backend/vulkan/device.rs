@@ -6,26 +6,38 @@ use ash::vk;
 use crate::core::Instance;
 use crate::error::{Error, ErrorKind, Severity, vk_error};
 
+/// Queue family category for device creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueCategory {
+    /// Graphics queue family.
     Graphics,
+    /// Compute queue family.
     Compute,
+    /// Transfer queue family.
     Transfer,
 }
 
+/// Requested queues of a given [`QueueCategory`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueueRequest {
+    /// Queue family category.
     pub category: QueueCategory,
+    /// Number of queues to create in that family.
     pub count: u32,
 }
 
+/// Parameters for [`Adapter::request_device`].
 #[derive(Debug, Clone)]
 pub struct DeviceDescriptor {
+    /// Features enabled on the logical device.
     pub required_features: vk::PhysicalDeviceFeatures,
+    /// Whether to enable `VK_KHR_swapchain`.
     pub enable_swapchain: bool,
+    /// Queue allocations requested at device creation.
     pub queues: Vec<QueueRequest>,
 }
 
+/// Vulkan physical device for selection and logical device creation.
 pub struct Adapter {
     pub(crate) handle: vk::PhysicalDevice,
     name: String,
@@ -48,22 +60,27 @@ impl Adapter {
         }
     }
 
+    /// Human-readable device name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// `VkPhysicalDeviceType` value.
     pub fn device_type(&self) -> vk::PhysicalDeviceType {
         self.device_type
     }
 
+    /// Physical device limits.
     pub fn limits(&self) -> &vk::PhysicalDeviceLimits {
         &self.limits
     }
 
+    /// `VkPhysicalDevice` handle.
     pub fn physical_device(&self) -> vk::PhysicalDevice {
         self.handle
     }
 
+    /// Heuristic score for adapter ranking (higher is preferred).
     pub fn selection_score(&self) -> u32 {
         match self.device_type {
             vk::PhysicalDeviceType::DISCRETE_GPU => 400,
@@ -74,6 +91,11 @@ impl Adapter {
         }
     }
 
+    /// Reports whether `VK_KHR_swapchain` is available on this adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if extension enumeration fails.
     pub fn has_swapchain_extension(&self, instance: &Instance) -> Result<bool, Error> {
         let extensions = unsafe {
             instance
@@ -86,6 +108,7 @@ impl Adapter {
         }))
     }
 
+    /// Returns whether `queues` can be satisfied by this adapter's families.
     pub fn supports_queue_requests(&self, instance: &Instance, queues: &[QueueRequest]) -> bool {
         let queue_families = unsafe {
             instance
@@ -138,6 +161,11 @@ impl Adapter {
         has_request
     }
 
+    /// Creates a [`Device`] from `desc` on this adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if swapchain, queues, or device creation cannot be satisfied.
     pub fn request_device(
         &self,
         instance: &Instance,
@@ -291,13 +319,18 @@ impl Adapter {
     }
 }
 
+/// Queue allocation recorded at device creation.
 #[derive(Debug, Clone)]
 pub struct QueueAllocation {
+    /// Queue family category.
     pub category: QueueCategory,
+    /// Vulkan queue family index.
     pub family_index: u32,
+    /// Number of queues created in that family.
     pub count: u32,
 }
 
+/// Created Vulkan logical device with queue layout metadata.
 pub struct Device {
     pub(crate) handle: vk::PhysicalDevice,
     pub(crate) device: ash::Device,
@@ -306,26 +339,36 @@ pub struct Device {
 }
 
 impl Device {
+    /// `ash::Device` reference.
     pub fn logical_device(&self) -> &ash::Device {
         &self.device
     }
 
+    /// `VkPhysicalDevice` handle.
     pub fn physical_device(&self) -> vk::PhysicalDevice {
         self.handle
     }
 
+    /// Physical device properties.
     pub fn properties(&self) -> &vk::PhysicalDeviceProperties {
         &self.properties
     }
 
+    /// Queue allocations created with this device.
     pub fn queues(&self) -> &[QueueAllocation] {
         &self.queues
     }
 
+    /// Obtains a `VkQueue` for `family_index` and `queue_index`.
     pub fn get_queue(&self, family_index: u32, queue_index: u32) -> vk::Queue {
         unsafe { self.device.get_device_queue(family_index, queue_index) }
     }
 
+    /// Finds a memory type index matching `type_filter` and `properties`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if no compatible memory type exists.
     pub fn find_memory_type(
         &self,
         instance: &Instance,
@@ -350,6 +393,7 @@ impl Device {
         Err(Error::fatal(ErrorKind::NoCompatibleDevice))
     }
 
+    /// Rounds `original_size` up to the minimum uniform buffer offset alignment.
     pub fn pad_uniform_buffer_size(&self, original_size: usize) -> usize {
         let min_alignment = self.properties.limits.min_uniform_buffer_offset_alignment as usize;
         let mut aligned_size = original_size;
@@ -361,6 +405,7 @@ impl Device {
         aligned_size
     }
 
+    /// Destroys the logical device.
     pub fn destroy(&mut self) {
         unsafe {
             self.device.destroy_device(None);

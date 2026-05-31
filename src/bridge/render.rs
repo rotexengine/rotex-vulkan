@@ -14,6 +14,11 @@ use rotex_types::{
 };
 
 impl VulkanBridge {
+    /// Records and submits one frame for `scene` using `frame` pass configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if no surface is attached, the frame is invalid, or rendering fails.
     pub fn render(
         &mut self,
         scene: &FrontendSceneDescriptor,

@@ -5,25 +5,30 @@ use super::sync::Semaphore;
 use crate::core::Instance;
 use crate::error::{Error, ErrorKind, Severity, vk_error};
 
+/// Window surface wrapper with KHR surface loader.
 pub struct Surface {
     pub(crate) loader: ash::khr::surface::Instance,
     pub(crate) surface: vk::SurfaceKHR,
 }
 
 impl Surface {
+    /// Wraps `surface` with a KHR surface loader for `instance`.
     pub fn new(instance: &Instance, surface: vk::SurfaceKHR) -> Self {
         let loader = ash::khr::surface::Instance::new(instance.entry(), instance.instance());
         Self { loader, surface }
     }
 
+    /// KHR surface instance loader.
     pub fn loader(&self) -> &ash::khr::surface::Instance {
         &self.loader
     }
 
+    /// `VkSurfaceKHR` handle.
     pub fn handle(&self) -> vk::SurfaceKHR {
         self.surface
     }
 
+    /// Destroys the surface.
     pub fn destroy(&mut self) {
         unsafe {
             self.loader.destroy_surface(self.surface, None);
@@ -31,6 +36,7 @@ impl Surface {
     }
 }
 
+/// Swapchain images and views for presentation.
 pub struct Swapchain {
     pub(crate) loader: ash::khr::swapchain::Device,
     pub(crate) swapchain: vk::SwapchainKHR,
@@ -56,6 +62,11 @@ fn clamp_extent(extent: vk::Extent2D, capabilities: &vk::SurfaceCapabilitiesKHR)
 }
 
 impl Swapchain {
+    /// Creates a swapchain for `surface` using `extent_hint` when extent is undefined.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if surface queries, swapchain creation, or image view creation fails.
     pub fn new(
         instance: &Instance,
         device: &Device,
@@ -71,6 +82,11 @@ impl Swapchain {
         )
     }
 
+    /// Creates or recreates a swapchain, retiring `old_swapchain` if non-null.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if surface queries, swapchain creation, or image view creation fails.
     pub fn new_with_old(
         instance: &Instance,
         device: &Device,
@@ -192,6 +208,11 @@ impl Swapchain {
         })
     }
 
+    /// Acquires the next swapchain image, signaling `semaphore` when ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkAcquireNextImageKHR` fails.
     pub fn acquire_next_image(&self, semaphore: &Semaphore) -> Result<(u32, bool), Error> {
         unsafe {
             self.loader.acquire_next_image(
@@ -204,6 +225,11 @@ impl Swapchain {
         .map_err(vk_error)
     }
 
+    /// Presents `image_index` on `queue` after `wait_semaphore` is signaled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkQueuePresentKHR` fails.
     pub fn present(
         &self,
         queue: vk::Queue,
@@ -222,26 +248,32 @@ impl Swapchain {
         unsafe { self.loader.queue_present(queue, &present_info) }.map_err(vk_error)
     }
 
+    /// Selected surface format.
     pub fn format(&self) -> vk::Format {
         self.format
     }
 
+    /// Selected surface color space.
     pub fn color_space(&self) -> vk::ColorSpaceKHR {
         self.color_space
     }
 
+    /// Swapchain image extent.
     pub fn extent(&self) -> vk::Extent2D {
         self.extent
     }
 
+    /// Swapchain `VkImage` handles.
     pub fn images(&self) -> &[vk::Image] {
         &self.images
     }
 
+    /// Image views for swapchain images.
     pub fn image_views(&self) -> &[vk::ImageView] {
         &self.image_views
     }
 
+    /// Destroys image views and the swapchain.
     pub fn destroy(&mut self, device: &Device) {
         unsafe {
             for view in self.image_views.drain(..) {

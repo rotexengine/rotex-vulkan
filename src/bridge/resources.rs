@@ -191,6 +191,11 @@ impl VulkanBridge {
         })
     }
 
+    /// Creates meshes, textures, and materials from `descriptor`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if validation or Vulkan resource creation fails.
     pub fn create_resources(
         &mut self,
         descriptor: ResourceBatchCreate,
@@ -226,6 +231,11 @@ impl VulkanBridge {
         Ok(CreatedResources { handles })
     }
 
+    /// Updates existing resources described by `descriptor`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if a resource id is missing or recreation fails.
     pub fn update_resources(
         &mut self,
         descriptor: ResourceBatchUpdate,

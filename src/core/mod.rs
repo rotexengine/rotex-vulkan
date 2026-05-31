@@ -1,3 +1,5 @@
+//! Vulkan instance and validation layer helpers.
+
 use std::ffi::{CStr, CString, c_void};
 
 use ash::vk;
@@ -5,11 +7,16 @@ use ash::vk;
 use crate::backend::vulkan::Adapter;
 use crate::error::{Error, ErrorKind, vk_error};
 
+/// Options passed when creating a [`Instance`].
 #[derive(Debug, Clone)]
 pub struct InstanceOptions {
+    /// `VkApplicationInfo::applicationName`.
     pub application_name: &'static str,
+    /// `VkApplicationInfo::engineName`.
     pub engine_name: &'static str,
+    /// Enables the Khronos validation layer when available.
     pub enable_validation: bool,
+    /// Enables `VK_EXT_debug_utils` and a debug messenger.
     pub enable_debug_utils: bool,
 }
 
@@ -24,12 +31,21 @@ impl Default for InstanceOptions {
     }
 }
 
+/// Vulkan instance wrapper.
 pub struct Instance {
     entry: ash::Entry,
     instance: ash::Instance,
 }
 
 impl Instance {
+    /// Creates an instance from `options` and enabled `extensions`.
+    ///
+    /// Returns an optional [`DebugMessenger`] when `enable_debug_utils` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if loading the loader, creating the instance, or setting up
+    /// the debug messenger fails.
     pub fn new_with_options(
         options: &InstanceOptions,
         extensions: &[*const i8],
@@ -75,14 +91,17 @@ impl Instance {
         Ok((Self { entry, instance }, debug))
     }
 
+    /// Vulkan loader entry point.
     pub fn entry(&self) -> &ash::Entry {
         &self.entry
     }
 
+    /// Underlying `VkInstance`.
     pub fn instance(&self) -> &ash::Instance {
         &self.instance
     }
 
+    /// Enumerates physical devices as [`Adapter`] values.
     pub fn enumerate_adapters(&self) -> Vec<Adapter> {
         let Ok(physical_devices) = (unsafe { self.instance.enumerate_physical_devices() }) else {
             return Vec::new();
@@ -101,6 +120,7 @@ impl Instance {
             .collect()
     }
 
+    /// Destroys the instance.
     pub fn destroy(self) {
         unsafe {
             self.instance.destroy_instance(None);
@@ -108,6 +128,7 @@ impl Instance {
     }
 }
 
+/// `VK_EXT_debug_utils` messenger that logs validation output to stderr.
 pub struct DebugMessenger {
     loader: ash::ext::debug_utils::Instance,
     messenger: vk::DebugUtilsMessengerEXT,
@@ -132,6 +153,7 @@ impl DebugMessenger {
         Ok(Self { loader, messenger })
     }
 
+    /// Destroys the debug messenger.
     pub fn destroy(self) {
         unsafe {
             self.loader

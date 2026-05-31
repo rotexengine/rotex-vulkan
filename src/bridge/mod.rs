@@ -1,3 +1,5 @@
+//! High-level bridge between `rotex_types` and the Vulkan backend.
+
 mod init;
 mod pipeline_cache;
 mod render;
@@ -19,6 +21,7 @@ use self::types::{
     TextureResource, VertexLayoutId,
 };
 
+/// Owns Vulkan instance/device state and rotex resource tables for rendering.
 pub struct VulkanBridge {
     instance: VulkanInstance,
     device: VulkanDevice,

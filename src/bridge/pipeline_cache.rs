@@ -4,9 +4,11 @@ use ash::vk;
 
 use super::{VulkanBridge, surface_not_attached_error};
 use crate::backend::vulkan::{
-    ColorBlendAttachmentState, ColorBlendState, DepthStencilState, GraphicsPipelineBuilder,
-    GraphicsPipelineLayout, RasterizationState, ShaderModule, ShaderStageDescriptor,
+    GraphicsPipelineBuilder, GraphicsPipelineLayout, ShaderModule, ShaderStageDescriptor,
     VertexInputDescriptor,
+};
+use crate::backend::vulkan::graphics_pipeline::state::{
+    ColorBlendAttachmentState, ColorBlendState, DepthStencilState, RasterizationState,
 };
 use crate::error::{Error, ErrorKind};
 use rotex_types::resource::{MaterialDescriptor, MaterialId, VertexBufferLayout, VertexFormat};

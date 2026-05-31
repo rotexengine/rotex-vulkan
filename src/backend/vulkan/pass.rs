@@ -2,26 +2,33 @@ use ash::vk;
 
 use super::device::Device;
 
+/// Attachment indices used when building a subpass.
 #[derive(Debug, Clone)]
 pub struct SubpassBlueprint {
+    /// Color attachment indices.
     pub color_attachments: Vec<u32>,
+    /// Optional depth/stencil attachment index.
     pub depth_attachment: Option<u32>,
 }
 
+/// Vulkan render pass object.
 pub struct RenderPass {
     pub(crate) render_pass: vk::RenderPass,
     attachments: Vec<vk::AttachmentDescription>,
 }
 
 impl RenderPass {
+    /// `VkRenderPass` handle.
     pub fn handle(&self) -> vk::RenderPass {
         self.render_pass
     }
 
+    /// Attachment descriptions used to create this render pass.
     pub fn attachments(&self) -> &[vk::AttachmentDescription] {
         &self.attachments
     }
 
+    /// Destroys the render pass.
     pub fn destroy(&self, device: &Device) {
         unsafe {
             device
@@ -31,6 +38,7 @@ impl RenderPass {
     }
 }
 
+/// Builder for [`RenderPass`].
 pub struct RenderPassBuilder {
     attachments: Vec<vk::AttachmentDescription>,
     subpasses: Vec<SubpassBlueprint>,
@@ -38,6 +46,7 @@ pub struct RenderPassBuilder {
 }
 
 impl RenderPassBuilder {
+    /// Creates an empty builder.
     pub fn new() -> Self {
         Self {
             attachments: Vec::new(),
@@ -46,21 +55,29 @@ impl RenderPassBuilder {
         }
     }
 
+    /// Appends an attachment description.
     pub fn with_attachment(mut self, attachment: vk::AttachmentDescription) -> Self {
         self.attachments.push(attachment);
         self
     }
 
+    /// Appends a subpass blueprint.
     pub fn with_subpass(mut self, subpass: SubpassBlueprint) -> Self {
         self.subpasses.push(subpass);
         self
     }
 
+    /// Appends a subpass dependency.
     pub fn with_dependency(mut self, dependency: vk::SubpassDependency) -> Self {
         self.dependencies.push(dependency);
         self
     }
 
+    /// Builds the render pass on `device`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`vk::Result`] if `vkCreateRenderPass` fails.
     pub fn build(self, device: &Device) -> Result<RenderPass, vk::Result> {
         let mut all_color_refs: Vec<Vec<vk::AttachmentReference>> =
             Vec::with_capacity(self.subpasses.len());

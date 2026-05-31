@@ -4,6 +4,7 @@ use super::device::Device;
 use crate::core::Instance;
 use crate::error::{Error, ErrorKind};
 
+/// Device buffer with bound [`vk::DeviceMemory`].
 pub struct RotexBuffer {
     handle: vk::Buffer,
     device_memory: vk::DeviceMemory,
@@ -11,6 +12,11 @@ pub struct RotexBuffer {
 }
 
 impl RotexBuffer {
+    /// Allocates a buffer of `size` with `usage` and memory `properties`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if buffer creation, memory allocation, or binding fails.
     pub fn new(
         instance: &Instance,
         device: &Device,
@@ -54,6 +60,11 @@ impl RotexBuffer {
         })
     }
 
+    /// Maps the buffer memory for host access.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkMapMemory` fails.
     pub fn map(&self, device: &Device) -> Result<*mut std::ffi::c_void, Error> {
         unsafe {
             device.logical_device().map_memory(
@@ -67,18 +78,22 @@ impl RotexBuffer {
         .map_err(Error::fatal)
     }
 
+    /// Unmaps previously mapped memory.
     pub fn unmap(&self, device: &Device) {
         unsafe { device.logical_device().unmap_memory(self.device_memory) };
     }
 
+    /// `VkBuffer` handle.
     pub fn handle(&self) -> vk::Buffer {
         self.handle
     }
 
+    /// Allocated size in bytes.
     pub fn size(&self) -> vk::DeviceSize {
         self.size
     }
 
+    /// Destroys the buffer and frees its memory.
     pub fn destroy(&self, device: &Device) {
         unsafe {
             device.logical_device().destroy_buffer(self.handle, None);

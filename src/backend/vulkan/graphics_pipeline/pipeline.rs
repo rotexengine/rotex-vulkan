@@ -9,11 +9,17 @@ use super::super::device::Device;
 use crate::error::vk_error;
 use crate::{Error, ErrorKind};
 
+/// Owned `VkPipeline` graphics pipeline.
 pub struct GraphicsPipeline {
     handle: vk::Pipeline,
 }
 
 impl GraphicsPipeline {
+    /// Creates a graphics pipeline from a pre-built `VkGraphicsPipelineCreateInfo`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkCreateGraphicsPipelines` fails.
     pub fn new(
         device: &Device,
         create_info: &vk::GraphicsPipelineCreateInfo,
@@ -31,10 +37,12 @@ impl GraphicsPipeline {
         Ok(Self { handle })
     }
 
+    /// Returns the `VkPipeline` handle.
     pub fn handle(&self) -> vk::Pipeline {
         self.handle
     }
 
+    /// Destroys the pipeline.
     pub fn destroy(&self, device: &Device) {
         unsafe {
             device.logical_device().destroy_pipeline(self.handle, None);
@@ -42,6 +50,7 @@ impl GraphicsPipeline {
     }
 }
 
+/// Fluent builder for [`GraphicsPipeline`] fixed-function and shader state.
 pub struct GraphicsPipelineBuilder<'a> {
     shader_stages: Vec<ShaderStageDescriptor<'a>>,
     render_pass: Option<vk::RenderPass>,
@@ -57,6 +66,7 @@ pub struct GraphicsPipelineBuilder<'a> {
 }
 
 impl<'a> GraphicsPipelineBuilder<'a> {
+    /// Creates a builder with default fixed-function state and no shaders.
     pub fn new() -> Self {
         Self {
             shader_stages: Vec::new(),
@@ -74,26 +84,31 @@ impl<'a> GraphicsPipelineBuilder<'a> {
         }
     }
 
+    /// Appends a shader stage.
     pub fn with_shader_stage(mut self, stage: ShaderStageDescriptor<'a>) -> Self {
         self.shader_stages.push(stage);
         self
     }
 
+    /// Sets `VkGraphicsPipelineCreateInfo::renderPass`.
     pub fn with_render_pass(mut self, render_pass: vk::RenderPass) -> Self {
         self.render_pass = Some(render_pass);
         self
     }
 
+    /// Sets `VkGraphicsPipelineCreateInfo::layout`.
     pub fn with_layout(mut self, layout: vk::PipelineLayout) -> Self {
         self.layout = Some(layout);
         self
     }
 
+    /// Sets `VkPipelineVertexInputStateCreateInfo` inputs.
     pub fn with_vertex_input_state(mut self, state: VertexInputDescriptor) -> Self {
         self.vertex_input_state = state;
         self
     }
 
+    /// Sets `VkPipelineInputAssemblyStateCreateInfo`.
     pub fn with_input_assembly_state(
         mut self,
         state: vk::PipelineInputAssemblyStateCreateInfo<'a>,
@@ -102,41 +117,54 @@ impl<'a> GraphicsPipelineBuilder<'a> {
         self
     }
 
-    pub fn with_viewport_state(mut self, viewport: Viewport) -> Self {
+    /// Sets viewport and scissor extent via `Viewport`.
+    pub(crate) fn with_viewport_state(mut self, viewport: Viewport) -> Self {
         self.viewport_state = viewport;
         self
     }
 
+    /// Sets `VkPipelineRasterizationStateCreateInfo` inputs.
     pub fn with_rasterization_state(mut self, state: RasterizationState) -> Self {
         self.rasterization_state = state;
         self
     }
 
-    pub fn with_multisample_state(mut self, state: MultisampleState) -> Self {
+    /// Sets `VkPipelineMultisampleStateCreateInfo` inputs.
+    pub(crate) fn with_multisample_state(mut self, state: MultisampleState) -> Self {
         self.multisample_state = state;
         self
     }
 
+    /// Sets `VkPipelineColorBlendStateCreateInfo` inputs.
     pub fn with_color_blend_state(mut self, state: ColorBlendState) -> Self {
         self.color_blend_state = state;
         self
     }
 
+    /// Sets `VkGraphicsPipelineCreateInfo::subpass`.
     pub fn with_subpass(mut self, subpass: u32) -> Self {
         self.subpass = Some(subpass);
         self
     }
 
+    /// Sets viewport width and height (and matching scissor extent).
     pub fn with_extent(mut self, width: u32, height: u32) -> Self {
         self.viewport_state = self.viewport_state.with_extent(width, height);
         self
     }
 
+    /// Sets `VkPipelineDepthStencilStateCreateInfo` inputs; defaults apply if omitted at build.
     pub fn with_depth_stencil_state(mut self, state: DepthStencilState) -> Self {
         self.depth_stencil_state = Some(state);
         self
     }
 
+    /// Builds the graphics pipeline on `device`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if no shader stages, layout, or render pass were configured, or if
+    /// `vkCreateGraphicsPipelines` fails.
     pub fn build(self, device: &Device) -> Result<GraphicsPipeline, Error> {
         if self.shader_stages.is_empty() {
             return Err(Error::fatal(ErrorKind::Vulkan(

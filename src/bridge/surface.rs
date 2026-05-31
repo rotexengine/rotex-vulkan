@@ -5,6 +5,13 @@ use crate::error::{Error, vk_error};
 use rotex_types::{Extent2D as FrontendExtent2D, SurfaceDescriptor as FrontendSurfaceDescriptor};
 
 impl VulkanBridge {
+    /// Attaches a window surface and creates swapchain render targets.
+    ///
+    /// Replaces any previously attached surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if surface or swapchain creation fails.
     pub fn attach_surface(
         &mut self,
         surface_descriptor: FrontendSurfaceDescriptor,
@@ -143,6 +150,11 @@ impl VulkanBridge {
         (0..count).map(|_| Semaphore::new(device)).collect()
     }
 
+    /// Recreates the swapchain for a new `extent`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if no surface is attached or swapchain recreation fails.
     pub fn resize(&mut self, extent: FrontendExtent2D) -> Result<(), Error> {
         if let Some(state) = self.surface_state.as_mut() {
             state.extent = super::init::to_vk_extent(extent);
@@ -151,6 +163,7 @@ impl VulkanBridge {
         Err(surface_not_attached_error())
     }
 
+    /// Waits for GPU work, then destroys all owned Vulkan and bridge resources.
     pub fn destroy(mut self) {
         let _ = self.in_flight_fence.wait(self.device.raw(), u64::MAX);
         unsafe {

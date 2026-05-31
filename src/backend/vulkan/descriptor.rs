@@ -5,15 +5,18 @@ use super::device::Device;
 use crate::error::vk_error;
 use crate::Error;
 
+/// Allocated descriptor set handle.
 pub struct DescriptorSet {
     handle: vk::DescriptorSet,
 }
 
 impl DescriptorSet {
+    /// `VkDescriptorSet` handle.
     pub fn handle(&self) -> vk::DescriptorSet {
         self.handle
     }
 
+    /// Writes a buffer binding at `binding`.
     pub fn write_buffer(
         &self,
         device: &Device,
@@ -39,6 +42,7 @@ impl DescriptorSet {
         }
     }
 
+    /// Writes a combined image sampler at `binding`.
     pub fn write_image_sampler(
         &self,
         device: &Device,
@@ -64,11 +68,17 @@ impl DescriptorSet {
     }
 }
 
+/// Pool used to allocate [`DescriptorSet`] handles.
 pub struct DescriptorPool {
     handle: vk::DescriptorPool,
 }
 
 impl DescriptorPool {
+    /// Creates a pool supporting up to `max_sets` with `pool_sizes`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkCreateDescriptorPool` fails.
     pub fn new(
         device: &Device,
         max_sets: u32,
@@ -89,6 +99,11 @@ impl DescriptorPool {
         Ok(Self { handle })
     }
 
+    /// Allocates one set per entry in `layouts`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if allocation fails.
     pub fn allocate_sets(
         &self,
         device: &Device,
@@ -111,10 +126,16 @@ impl DescriptorPool {
             .collect())
     }
 
+    /// `VkDescriptorPool` handle.
     pub fn handle(&self) -> vk::DescriptorPool {
         self.handle
     }
 
+    /// Returns `sets` to the pool.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `vkFreeDescriptorSets` fails.
     pub fn free_sets(&self, device: &Device, sets: &[DescriptorSet]) -> Result<(), Error> {
         if sets.is_empty() {
             return Ok(());
@@ -128,6 +149,7 @@ impl DescriptorPool {
         .map_err(vk_error)
     }
 
+    /// Destroys the pool and all sets allocated from it.
     pub fn destroy(&self, device: &Device) {
         unsafe {
             device
