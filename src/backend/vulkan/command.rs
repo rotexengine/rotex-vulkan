@@ -83,6 +83,7 @@ impl CommandBuffer {
         pipeline_layout: vk::PipelineLayout,
         first_set: u32,
         descriptor_sets: &[vk::DescriptorSet],
+        dynamic_offsets: &[u32],
     ) {
         unsafe {
             device.logical_device().cmd_bind_descriptor_sets(
@@ -91,6 +92,80 @@ impl CommandBuffer {
                 pipeline_layout,
                 first_set,
                 descriptor_sets,
+                dynamic_offsets,
+            );
+        }
+    }
+
+    pub fn bind_compute_pipeline(&self, device: &Device, pipeline: vk::Pipeline) {
+        unsafe {
+            device.logical_device().cmd_bind_pipeline(
+                self.handle,
+                vk::PipelineBindPoint::COMPUTE,
+                pipeline,
+            );
+        }
+    }
+
+    pub fn bind_compute_descriptor_sets(
+        &self,
+        device: &Device,
+        pipeline_layout: vk::PipelineLayout,
+        first_set: u32,
+        descriptor_sets: &[vk::DescriptorSet],
+        dynamic_offsets: &[u32],
+    ) {
+        unsafe {
+            device.logical_device().cmd_bind_descriptor_sets(
+                self.handle,
+                vk::PipelineBindPoint::COMPUTE,
+                pipeline_layout,
+                first_set,
+                descriptor_sets,
+                dynamic_offsets,
+            );
+        }
+    }
+
+    pub fn dispatch_compute(&self, device: &Device, workgroup_count: [u32; 3]) {
+        unsafe {
+            device.logical_device().cmd_dispatch(
+                self.handle,
+                workgroup_count[0],
+                workgroup_count[1],
+                workgroup_count[2],
+            );
+        }
+    }
+
+    pub fn record_buffer_transition(
+        &self,
+        device: &Device,
+        buffer: vk::Buffer,
+        from: rotex_types::AccessType,
+        to: rotex_types::AccessType,
+    ) {
+        if from == to {
+            return;
+        }
+        let (src_stage, src_access) = access_state(from);
+        let (dst_stage, dst_access) = access_state(to);
+        let barrier = vk::BufferMemoryBarrier::default()
+            .src_access_mask(src_access)
+            .dst_access_mask(dst_access)
+            .buffer(buffer)
+            .offset(0)
+            .size(vk::WHOLE_SIZE)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED);
+        unsafe {
+            device.logical_device().cmd_pipeline_barrier(
+                self.handle,
+                src_stage,
+                dst_stage,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[barrier],
                 &[],
             );
         }
@@ -168,6 +243,21 @@ impl CommandBuffer {
         }
     }
 
+    pub fn copy_buffer(
+        &self,
+        device: &Device,
+        src: vk::Buffer,
+        dst: vk::Buffer,
+        size: vk::DeviceSize,
+    ) {
+        let region = vk::BufferCopy::default().size(size);
+        unsafe {
+            device
+                .logical_device()
+                .cmd_copy_buffer(self.handle, src, dst, &[region]);
+        }
+    }
+
     pub fn copy_buffer_to_image(
         &self,
         device: &Device,
@@ -199,6 +289,42 @@ impl CommandBuffer {
                 buffer,
                 image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[region],
+            );
+        }
+    }
+
+    pub fn copy_image_to_buffer(
+        &self,
+        device: &Device,
+        image: vk::Image,
+        buffer: vk::Buffer,
+        width: u32,
+        height: u32,
+    ) {
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .base_array_layer(0)
+                    .layer_count(1),
+            )
+            .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+            .image_extent(vk::Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
+        unsafe {
+            device.logical_device().cmd_copy_image_to_buffer(
+                self.handle,
+                image,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                buffer,
                 &[region],
             );
         }
@@ -277,6 +403,36 @@ impl CommandBuffer {
     }
 }
 
+fn access_state(access: rotex_types::AccessType) -> (vk::PipelineStageFlags, vk::AccessFlags) {
+    use rotex_types::AccessType;
+    match access {
+        AccessType::None => (
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::AccessFlags::empty(),
+        ),
+        AccessType::ComputeRead => (
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::AccessFlags::SHADER_READ,
+        ),
+        AccessType::ComputeWrite => (
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::AccessFlags::SHADER_WRITE,
+        ),
+        AccessType::ComputeReadWrite => (
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+        ),
+        AccessType::VertexRead => (
+            vk::PipelineStageFlags::VERTEX_INPUT,
+            vk::AccessFlags::VERTEX_ATTRIBUTE_READ,
+        ),
+        AccessType::FragmentRead => (
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::AccessFlags::SHADER_READ,
+        ),
+    }
+}
+
 pub struct CommandPool {
     pub(crate) handle: vk::CommandPool,
 }
@@ -296,8 +452,12 @@ impl CommandPool {
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .queue_family_index(graphics_queue.family_index);
 
-        let handle = unsafe { device.logical_device().create_command_pool(&pool_info, None) }
-            .map_err(vk_error)?;
+        let handle = unsafe {
+            device
+                .logical_device()
+                .create_command_pool(&pool_info, None)
+        }
+        .map_err(vk_error)?;
 
         Ok(Self { handle })
     }
@@ -312,8 +472,12 @@ impl CommandPool {
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(count);
 
-        let handles = unsafe { device.logical_device().allocate_command_buffers(&alloc_info) }
-            .map_err(vk_error)?;
+        let handles = unsafe {
+            device
+                .logical_device()
+                .allocate_command_buffers(&alloc_info)
+        }
+        .map_err(vk_error)?;
 
         Ok(handles
             .into_iter()
@@ -323,7 +487,9 @@ impl CommandPool {
 
     pub fn destroy(&self, device: &Device) {
         unsafe {
-            device.logical_device().destroy_command_pool(self.handle, None);
+            device
+                .logical_device()
+                .destroy_command_pool(self.handle, None);
         }
     }
 }

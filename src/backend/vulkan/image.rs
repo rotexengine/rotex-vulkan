@@ -73,8 +73,12 @@ impl RotexImage {
             .usage(desc.usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let image_handle = unsafe { device.logical_device().create_image(&image_create_info, None) }
-            .map_err(vk_error)?;
+        let image_handle = unsafe {
+            device
+                .logical_device()
+                .create_image(&image_create_info, None)
+        }
+        .map_err(vk_error)?;
 
         let mem_requirements = unsafe {
             device
@@ -116,8 +120,12 @@ impl RotexImage {
                 layer_count: desc.array_layers,
             });
 
-        let image_view = unsafe { device.logical_device().create_image_view(&view_create_info, None) }
-            .map_err(vk_error)?;
+        let image_view = unsafe {
+            device
+                .logical_device()
+                .create_image_view(&view_create_info, None)
+        }
+        .map_err(vk_error)?;
 
         Ok(Self {
             image_handle,

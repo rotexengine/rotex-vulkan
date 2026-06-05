@@ -1,5 +1,6 @@
 mod buffer;
 mod command;
+mod compute_pipeline;
 mod descriptor;
 mod device;
 mod framebuffer;
@@ -11,6 +12,7 @@ mod sync;
 
 pub use buffer::RotexBuffer;
 pub use command::{CommandBuffer, CommandPool};
+pub use compute_pipeline::ComputePipeline;
 pub use descriptor::{DescriptorPool, DescriptorSet};
 pub use device::{Adapter, Device, DeviceDescriptor, QueueAllocation, QueueCategory, QueueRequest};
 pub use framebuffer::{Framebuffer, FramebufferBuilder};

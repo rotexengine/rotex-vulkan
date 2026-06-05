@@ -2,15 +2,14 @@ use std::ffi::CString;
 
 use ash::vk;
 
-use super::{VulkanBridge, surface_not_attached_error};
+use super::VulkanBridge;
+use super::types::{DepthMode, MaterialPipelineKey, VertexLayoutId};
 use crate::backend::vulkan::{
     ColorBlendAttachmentState, ColorBlendState, DepthStencilState, GraphicsPipelineBuilder,
-    GraphicsPipelineLayout, RasterizationState, ShaderModule, ShaderStageDescriptor,
-    VertexInputDescriptor,
+    RasterizationState, ShaderModule, ShaderStageDescriptor, VertexInputDescriptor,
 };
 use crate::error::{Error, ErrorKind};
 use rotex_types::resource::{MaterialDescriptor, MaterialId, VertexBufferLayout, VertexFormat};
-use super::types::{DepthMode, MaterialPipelineKey, VertexLayoutId};
 
 impl VulkanBridge {
     pub(super) fn create_pipeline_for_material(
@@ -40,8 +39,6 @@ impl VulkanBridge {
         })?;
         let vert = ShaderModule::new(self.device.raw(), &vert_words)?;
         let frag = ShaderModule::new(self.device.raw(), &frag_words)?;
-        let set_layouts = [self.texture_set_layout.handle()];
-        let layout = GraphicsPipelineLayout::new(self.device.raw(), &set_layouts, &[])?;
         let pipeline = GraphicsPipelineBuilder::new()
             .with_shader_stage(
                 ShaderStageDescriptor::new(vk::ShaderStageFlags::VERTEX, &vert)
@@ -69,12 +66,12 @@ impl VulkanBridge {
             })
             .with_vertex_input_state(vertex_input_descriptor(vertex_layout)?)
             .with_render_pass(render_pass)
-            .with_layout(layout.handle())
+            .with_layout(self.shared_pipeline_layout.handle())
             .with_extent(extent.width, extent.height)
             .build(self.device.raw())?;
         vert.destroy(self.device.raw());
         frag.destroy(self.device.raw());
-        Ok(super::types::MaterialPipeline { layout, pipeline })
+        Ok(super::types::MaterialPipeline { pipeline })
     }
 
     pub(super) fn pipeline_handle_for(
@@ -83,14 +80,8 @@ impl VulkanBridge {
         vertex_layout_id: VertexLayoutId,
         depth_mode: DepthMode,
         render_pass: vk::RenderPass,
+        extent: vk::Extent2D,
     ) -> Result<(vk::Pipeline, vk::PipelineLayout), Error> {
-        let extent = self
-            .surface_state
-            .as_ref()
-            .ok_or(surface_not_attached_error())?
-            .swapchain
-            .raw()
-            .extent();
         let pipeline_key = MaterialPipelineKey {
             material_id,
             vertex_layout_id,
@@ -128,7 +119,10 @@ impl VulkanBridge {
             .material_pipelines
             .get(&pipeline_key)
             .expect("pipeline must exist");
-        Ok((pipeline.pipeline.handle(), pipeline.layout.handle()))
+        Ok((
+            pipeline.pipeline.handle(),
+            self.shared_pipeline_layout.handle(),
+        ))
     }
 
     pub(super) fn invalidate_material_pipelines(&mut self, material_id: MaterialId) {
@@ -138,7 +132,6 @@ impl VulkanBridge {
         for key in keys {
             if let Some(pipeline) = self.material_pipelines.remove(&key) {
                 pipeline.pipeline.destroy(self.device.raw());
-                pipeline.layout.destroy(self.device.raw());
             }
         }
     }
@@ -146,7 +139,6 @@ impl VulkanBridge {
     pub(super) fn destroy_all_pipelines(&mut self) {
         for (_, pipeline) in self.material_pipelines.drain() {
             pipeline.pipeline.destroy(self.device.raw());
-            pipeline.layout.destroy(self.device.raw());
         }
         self.pipelines_by_material.clear();
     }
@@ -158,13 +150,12 @@ fn vertex_input_descriptor(layout: &VertexBufferLayout) -> Result<VertexInputDes
             "Vertex layout stride exceeds Vulkan limits",
         )));
     }
-    let mut descriptor = VertexInputDescriptor::default().with_binding(
-        vk::VertexInputBindingDescription {
+    let mut descriptor =
+        VertexInputDescriptor::default().with_binding(vk::VertexInputBindingDescription {
             binding: 0,
             stride: layout.array_stride as u32,
             input_rate: vk::VertexInputRate::VERTEX,
-        },
-    );
+        });
 
     for attribute in &layout.attributes {
         if attribute.offset > u32::MAX as u64 {
