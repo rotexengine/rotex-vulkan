@@ -15,7 +15,7 @@ use crate::backend::vulkan::{
 };
 use crate::error::{Error, ErrorKind};
 use rotex_core::{
-    Error as CoreError, ErrorKind as CoreErrorKind, RenderBackend, Severity as CoreSeverity,
+    Error as CoreError, ErrorKind as CoreErrorKind, GpuBackend, Severity as CoreSeverity,
 };
 use rotex_types::resource::{
     BufferId, ComputePipelineId, MaterialId, MeshId, TextureId, VertexBufferLayout,
@@ -86,7 +86,7 @@ fn to_core_error(error: Error) -> CoreError {
     CoreError { kind, severity }
 }
 
-impl RenderBackend for VulkanBridge {
+impl GpuBackend for VulkanBridge {
     fn attach_surface(
         &mut self,
         surface_descriptor: rotex_types::SurfaceDescriptor,
