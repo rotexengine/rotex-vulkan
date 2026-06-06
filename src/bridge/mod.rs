@@ -14,6 +14,9 @@ use crate::backend::vulkan::{
     GraphicsPipelineLayout, RotexBuffer, VulkanDevice, VulkanInstance,
 };
 use crate::error::{Error, ErrorKind};
+use rotex_core::{
+    Error as CoreError, ErrorKind as CoreErrorKind, RenderBackend, Severity as CoreSeverity,
+};
 use rotex_types::resource::{
     BufferId, ComputePipelineId, MaterialId, MeshId, TextureId, VertexBufferLayout,
 };
@@ -64,4 +67,67 @@ pub struct VulkanBridge {
 
 fn surface_not_attached_error() -> Error {
     Error::fatal(ErrorKind::Unsupported("Surface is not attached"))
+}
+
+fn to_core_error(error: Error) -> CoreError {
+    let severity = match error.severity {
+        crate::error::Severity::Fatal => CoreSeverity::Fatal,
+        crate::error::Severity::Info
+        | crate::error::Severity::Warning
+        | crate::error::Severity::Recoverable => CoreSeverity::Warning,
+    };
+    let kind = match error.kind {
+        crate::error::ErrorKind::NoCompatibleDevice => CoreErrorKind::NoCompatibleDevice,
+        crate::error::ErrorKind::Unsupported(message) => CoreErrorKind::Unsupported(message),
+        crate::error::ErrorKind::Vulkan(code) => {
+            CoreErrorKind::Backend(format!("Vulkan error: {code:?} ({})", code.as_raw()))
+        }
+    };
+    CoreError { kind, severity }
+}
+
+impl RenderBackend for VulkanBridge {
+    fn attach_surface(
+        &mut self,
+        surface_descriptor: rotex_types::SurfaceDescriptor,
+    ) -> Result<(), CoreError> {
+        VulkanBridge::attach_surface(self, surface_descriptor).map_err(to_core_error)
+    }
+
+    fn create_resources(
+        &mut self,
+        descriptor: rotex_types::ResourceBatchCreate,
+    ) -> Result<rotex_types::CreatedResources, CoreError> {
+        VulkanBridge::create_resources(self, descriptor).map_err(to_core_error)
+    }
+
+    fn update_resources(
+        &mut self,
+        descriptor: rotex_types::ResourceBatchUpdate,
+    ) -> Result<(), CoreError> {
+        VulkanBridge::update_resources(self, descriptor).map_err(to_core_error)
+    }
+
+    fn execute(
+        &mut self,
+        scene: &rotex_types::SceneDescriptor,
+        commands: &[rotex_types::RenderCommand],
+    ) -> Result<(), CoreError> {
+        VulkanBridge::execute(self, scene, commands).map_err(to_core_error)
+    }
+
+    fn resize(&mut self, extent: rotex_types::Extent2D) -> Result<(), CoreError> {
+        VulkanBridge::resize(self, extent).map_err(to_core_error)
+    }
+
+    fn read_texture(
+        &mut self,
+        id: rotex_types::TextureId,
+    ) -> Result<rotex_types::TextureReadback, CoreError> {
+        VulkanBridge::read_texture(self, id).map_err(to_core_error)
+    }
+
+    fn destroy(self: Box<Self>) {
+        VulkanBridge::destroy(*self);
+    }
 }
