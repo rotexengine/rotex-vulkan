@@ -1,10 +1,14 @@
+#![allow(dead_code)]
 use ash::vk;
 
 use crate::backend::vulkan::{
-    DescriptorPool, DescriptorSet, Device, Framebuffer, GraphicsPipeline, GraphicsPipelineLayout,
-    RenderPass, RotexBuffer, RotexImage, RotexSampler, Semaphore, VulkanSurface, VulkanSwapchain,
+    ComputePipeline, DescriptorPool, DescriptorSet, Device, Framebuffer, GraphicsPipeline,
+    GraphicsPipelineLayout, RenderPass, RotexBuffer, RotexImage, RotexSampler, Semaphore,
+    VulkanSurface, VulkanSwapchain,
 };
-use rotex_types::resource::{MaterialDescriptor, MaterialId, TextureDescriptor};
+use rotex_types::resource::{
+    ComputePipelineDescriptor, MaterialDescriptor, MaterialId, TextureDescriptor,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct VertexLayoutId(pub(super) u64);
@@ -87,4 +91,43 @@ pub(super) struct SurfaceState {
     pub(super) depth_targets: Option<RenderTargets>,
     pub(super) image_available: Semaphore,
     pub(super) render_finished: Vec<Semaphore>,
+}
+
+pub(super) struct BindGroupLayoutResource {
+    pub(super) layout: crate::backend::vulkan::DescriptorSetLayout,
+    pub(super) desc: rotex_types::resource::BindGroupLayoutDescriptor,
+}
+
+pub(super) struct BindGroupResource {
+    pub(super) descriptor_set: crate::backend::vulkan::DescriptorSet,
+}
+
+pub(super) struct BufferResource {
+    pub(super) buffer: RotexBuffer,
+    pub(super) size: u64,
+}
+
+pub(super) struct ComputePipelineResource {
+    pub(super) descriptor: ComputePipelineDescriptor,
+    pub(super) pipeline: ComputePipeline,
+    pub(super) pipeline_layout: GraphicsPipelineLayout,
+    pub(super) set_layouts: Vec<crate::backend::vulkan::DescriptorSetLayout>,
+    pub(super) descriptor_sets: Vec<crate::backend::vulkan::DescriptorSet>,
+}
+
+impl ComputePipelineResource {
+    pub(super) fn destroy(
+        self,
+        device: &Device,
+        storage_pool_mgr: &crate::backend::vulkan::DescriptorPoolManager,
+    ) {
+        for set in self.descriptor_sets {
+            let _ = storage_pool_mgr.free_sets(device, &[set]);
+        }
+        for layout in self.set_layouts {
+            layout.destroy(device);
+        }
+        self.pipeline_layout.destroy(device);
+        self.pipeline.destroy(device);
+    }
 }

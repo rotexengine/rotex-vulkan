@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::HashMap;
 
 use ash::vk;
@@ -11,7 +12,7 @@ use super::{VulkanBridge, surface_not_attached_error};
 use crate::backend::vulkan::Device;
 use crate::error::{Error, ErrorKind};
 use rotex_types::{
-    ColorAttachmentLoad, DepthAttachmentLoad, PassColorTarget, PassDescriptor, RenderCommand,
+    ColorAttachmentLoad, DepthAttachmentLoad, PassColorTarget, PassDescriptor, RhiCommand,
     TextureId,
 };
 
@@ -95,7 +96,7 @@ impl VulkanBridge {
     pub(super) fn resolve_pass_targets(
         &mut self,
         pass: &PassDescriptor,
-        remaining_commands: &[RenderCommand],
+        remaining_commands: &[RhiCommand],
         uses_depth: bool,
         image_index: u32,
     ) -> Result<ResolvedPassTarget, Error> {
@@ -152,7 +153,7 @@ impl VulkanBridge {
     fn create_pass_targets(
         &mut self,
         pass: &PassDescriptor,
-        remaining_commands: &[RenderCommand],
+        remaining_commands: &[RhiCommand],
         uses_depth: bool,
         depth_load: DepthAttachmentLoad,
     ) -> Result<RenderTargets, Error> {
@@ -266,16 +267,16 @@ fn effective_depth_load(pass: &PassDescriptor, uses_depth: bool) -> DepthAttachm
 }
 
 fn graphics_passes<'a>(
-    commands: &'a [RenderCommand],
+    commands: &'a [RhiCommand],
 ) -> impl Iterator<Item = &'a PassDescriptor> + 'a {
     commands.iter().filter_map(|command| match command {
-        RenderCommand::DrawGraphics(pass) => Some(pass),
+        RhiCommand::BeginRenderPass { pass, .. } => Some(pass),
         _ => None,
     })
 }
 
 fn target_pass_role(
-    remaining_commands: &[RenderCommand],
+    remaining_commands: &[RhiCommand],
     target: PassColorTarget,
 ) -> TargetPassRole {
     let has_later = graphics_passes(remaining_commands).any(|later| later.color_target == target);
@@ -287,7 +288,7 @@ fn target_pass_role(
 }
 
 fn depth_needs_store(
-    remaining_commands: &[RenderCommand],
+    remaining_commands: &[RhiCommand],
     target: PassColorTarget,
     uses_depth: bool,
 ) -> bool {

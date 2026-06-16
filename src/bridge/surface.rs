@@ -51,7 +51,17 @@ impl VulkanBridge {
         } else {
             None
         };
-        let render_pass = super::render::create_render_pass(device, swapchain.format(), depth_format)?;
+        let render_pass = super::render::create_render_pass(
+            device,
+            swapchain.format(),
+            depth_format,
+            super::render::RenderPassConfig {
+                color_load: ash::vk::AttachmentLoadOp::CLEAR,
+                color_final_layout: ash::vk::ImageLayout::PRESENT_SRC_KHR,
+                depth_load: depth_format.map(|_| ash::vk::AttachmentLoadOp::CLEAR),
+                depth_store: ash::vk::AttachmentStoreOp::DONT_CARE,
+            },
+        )?;
         let depth_image = match depth_format {
             Some(format) => Some(super::render::create_depth_image(
                 instance,

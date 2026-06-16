@@ -237,28 +237,37 @@ impl VulkanBridge {
     }
 }
 
+pub(super) struct RenderPassConfig {
+    pub(super) color_load: vk::AttachmentLoadOp,
+    pub(super) color_final_layout: vk::ImageLayout,
+    pub(super) depth_load: Option<vk::AttachmentLoadOp>,
+    pub(super) depth_store: vk::AttachmentStoreOp,
+}
+
 pub(super) fn create_render_pass(
     device: &Device,
     format: vk::Format,
     depth_format: Option<vk::Format>,
+    config: RenderPassConfig,
 ) -> Result<RenderPass, Error> {
     let mut builder = RenderPassBuilder::new().with_attachment(
         vk::AttachmentDescription::default()
             .format(format)
             .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .load_op(config.color_load)
             .store_op(vk::AttachmentStoreOp::STORE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR),
+            .final_layout(config.color_final_layout),
     );
 
     let subpass = if let Some(depth_format) = depth_format {
+        let depth_load = config.depth_load.unwrap_or(vk::AttachmentLoadOp::CLEAR);
         builder = builder.with_attachment(
             vk::AttachmentDescription::default()
                 .format(depth_format)
                 .samples(vk::SampleCountFlags::TYPE_1)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
-                .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                .load_op(depth_load)
+                .store_op(config.depth_store)
                 .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
                 .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
                 .initial_layout(vk::ImageLayout::UNDEFINED)
@@ -276,6 +285,23 @@ pub(super) fn create_render_pass(
     };
 
     builder.with_subpass(subpass).build(device).map_err(vk_error)
+}
+
+pub(super) fn build_texture_framebuffer(
+    device: &Device,
+    render_pass: vk::RenderPass,
+    color_view: vk::ImageView,
+    depth_image: Option<&RotexImage>,
+    width: u32,
+    height: u32,
+) -> Result<Vec<Framebuffer>, Error> {
+    let mut builder = FramebufferBuilder::new().with_attachment(color_view);
+    if let Some(depth) = depth_image {
+        builder = builder.with_attachment(depth.view());
+    }
+    Ok(vec![builder
+        .with_extent(width, height)
+        .build(device, render_pass)?])
 }
 
 pub(super) fn build_framebuffers(

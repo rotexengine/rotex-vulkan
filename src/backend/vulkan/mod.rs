@@ -1,7 +1,11 @@
 mod buffer;
 mod command;
+mod compute_pipeline;
+mod deferred_delete;
 mod descriptor;
+mod descriptor_pool_manager;
 mod device;
+mod frame_slot;
 mod framebuffer;
 mod graphics_pipeline;
 mod image;
@@ -11,8 +15,13 @@ mod sync;
 
 pub use buffer::RotexBuffer;
 pub use command::{CommandBuffer, CommandPool};
+pub use compute_pipeline::ComputePipeline;
+pub use deferred_delete::DeferredDeleteQueue;
 pub use descriptor::{DescriptorPool, DescriptorSet};
+pub use descriptor_pool_manager::{general_pool_sizes, storage_pool_sizes};
+pub use descriptor_pool_manager::DescriptorPoolManager;
 pub use device::{Adapter, Device, DeviceDescriptor, QueueAllocation, QueueCategory, QueueRequest};
+pub use frame_slot::FrameSlot;
 pub use framebuffer::{Framebuffer, FramebufferBuilder};
 pub use graphics_pipeline::{
     ColorBlendAttachmentState, ColorBlendState, DepthStencilState, DescriptorSetLayout,

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use ash::vk;
 
 use crate::backend::vulkan::DescriptorSetLayout;

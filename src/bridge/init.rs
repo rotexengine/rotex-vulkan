@@ -5,7 +5,8 @@ use ash::vk;
 
 use super::VulkanBridge;
 use crate::backend::vulkan::{
-    CommandPool, DescriptorPool, DescriptorSetLayout, DeviceDescriptor, Fence,
+    general_pool_sizes, storage_pool_sizes, CommandPool, DeferredDeleteQueue, DescriptorPool,
+    DescriptorPoolManager, DescriptorSetLayout, DeviceDescriptor, Fence, FrameSlot,
     QueueCategory as BackendQueueCategory, QueueRequest as BackendQueueRequest, VulkanInstance,
 };
 use crate::core::InstanceOptions;
@@ -15,6 +16,8 @@ use rotex_types::{
     Extent2D as FrontendExtent2D, InstanceDescriptor as FrontendInstanceDescriptor,
     QueueCategory,
 };
+
+const FRAMES_IN_FLIGHT: u32 = 2;
 
 impl VulkanBridge {
     pub fn new(
@@ -49,9 +52,13 @@ impl VulkanBridge {
         };
         let device = instance.request_device(backend_desc)?;
         let command_pool = CommandPool::new(device.raw())?;
+
         let mut command_buffers = command_pool.allocate_buffers(device.raw(), 1)?;
-        let command_buffer = command_buffers.pop().expect("one command buffer");
+        let command_buffer = command_buffers.pop().ok_or_else(|| {
+            Error::fatal(ErrorKind::Unsupported("failed to allocate command buffer"))
+        })?;
         let in_flight_fence = Fence::new(device.raw(), true)?;
+
         let texture_layout_bindings = [vk::DescriptorSetLayoutBinding::default()
             .binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -63,6 +70,22 @@ impl VulkanBridge {
             descriptor_count: 4096,
         }];
         let texture_descriptor_pool = DescriptorPool::new(device.raw(), 4096, &texture_pool_sizes)?;
+
+        let mut frame_slots = Vec::with_capacity(FRAMES_IN_FLIGHT as usize);
+        for _ in 0..FRAMES_IN_FLIGHT {
+            let mut buffers = command_pool.allocate_buffers(device.raw(), 1)?;
+            let cb = buffers.pop().ok_or_else(|| {
+                Error::fatal(ErrorKind::Unsupported("failed to allocate command buffer"))
+            })?;
+            let fence = Fence::new(device.raw(), true)?;
+            let image_available = crate::backend::vulkan::Semaphore::new(device.raw())?;
+            frame_slots.push(FrameSlot {
+                command_buffer: cb,
+                fence,
+                image_available,
+            });
+        }
+
         let graphics_queue_index = device
             .raw()
             .queues()
@@ -70,26 +93,54 @@ impl VulkanBridge {
             .find(|q| q.category == BackendQueueCategory::Graphics)
             .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?
             .family_index;
+
+        let general_pool = DescriptorPoolManager::new(general_pool_sizes(), 256);
+        let storage_pool = DescriptorPoolManager::new(storage_pool_sizes(), 4096);
+        let empty_set_layout = DescriptorSetLayout::new(device.raw(), &[])?;
+
         Ok(Self {
             instance,
             device,
             command_pool,
             command_buffer,
             in_flight_fence,
+            texture_set_layout,
+            texture_descriptor_pool,
+            frame_slots,
+            frames_in_flight: FRAMES_IN_FLIGHT,
+            current_frame_index: 0,
+            current_image_index: 0,
+            recording: false,
             graphics_queue_index,
             surface_state: None,
             meshes: HashMap::new(),
             materials: HashMap::new(),
             textures: HashMap::new(),
             default_texture: None,
-            texture_descriptor_pool,
-            texture_set_layout,
+            bind_group_layouts: HashMap::new(),
+            bind_groups: HashMap::new(),
+            general_descriptor_pool: general_pool,
+            storage_descriptor_pool: storage_pool,
+            empty_set_layout,
+            pass_target_cache: super::pass_targets::PassTargetCache::new(),
             material_pipelines: HashMap::new(),
             pipelines_by_material: HashMap::new(),
             vertex_layouts: HashMap::new(),
+            buffers: HashMap::new(),
+            compute_pipelines: HashMap::new(),
+            deferred_delete: DeferredDeleteQueue::new(),
+            active_render_pass: None,
+            active_pass_extent: None,
+            active_pipeline_layout: None,
+            active_pass: None,
+            active_target_role: None,
             next_mesh_id: 1,
             next_material_id: 1,
             next_texture_id: 1,
+            next_buffer_id: 1,
+            next_compute_pipeline_id: 1,
+            next_bind_group_layout_id: 1,
+            next_bind_group_id: 1,
         })
     }
 }

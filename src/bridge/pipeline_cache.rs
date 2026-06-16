@@ -46,8 +46,13 @@ impl VulkanBridge {
         })?;
         let vert = ShaderModule::new(self.device.raw(), &vert_words)?;
         let frag = ShaderModule::new(self.device.raw(), &frag_words)?;
-        let set_layouts = [self.texture_set_layout.handle()];
-        let layout = GraphicsPipelineLayout::new(self.device.raw(), &set_layouts, &[])?;
+        let vk_layouts = super::bindings::build_material_set_layouts(
+            self.device.raw(),
+            &material.shaders.layout,
+        )?;
+        let set_layout_handles: Vec<vk::DescriptorSetLayout> =
+            vk_layouts.iter().map(|l| l.handle()).collect();
+        let layout = GraphicsPipelineLayout::new(self.device.raw(), &set_layout_handles, &[])?;
         let pipeline = GraphicsPipelineBuilder::new()
             .with_shader_stage(
                 ShaderStageDescriptor::new(vk::ShaderStageFlags::VERTEX, &vert)
@@ -78,6 +83,9 @@ impl VulkanBridge {
             .with_layout(layout.handle())
             .with_extent(extent.width, extent.height)
             .build(self.device.raw())?;
+        for l in vk_layouts {
+            l.destroy(self.device.raw());
+        }
         vert.destroy(self.device.raw());
         frag.destroy(self.device.raw());
         Ok(super::types::MaterialPipeline { layout, pipeline })
@@ -133,7 +141,7 @@ impl VulkanBridge {
         let pipeline = self
             .material_pipelines
             .get(&pipeline_key)
-            .expect("pipeline must exist");
+            .ok_or(Error::fatal(ErrorKind::Unsupported("pipeline missing after creation")))?;
         Ok((pipeline.pipeline.handle(), pipeline.layout.handle()))
     }
 
@@ -164,11 +172,15 @@ fn vertex_input_descriptor(layout: &VertexBufferLayout) -> Result<VertexInputDes
             "Vertex layout stride exceeds Vulkan limits",
         )));
     }
+    let input_rate = match layout.step_mode {
+        rotex_types::VertexStepMode::Vertex => vk::VertexInputRate::VERTEX,
+        rotex_types::VertexStepMode::Instance => vk::VertexInputRate::INSTANCE,
+    };
     let mut descriptor = VertexInputDescriptor::default().with_binding(
         vk::VertexInputBindingDescription {
             binding: 0,
             stride: layout.array_stride as u32,
-            input_rate: vk::VertexInputRate::VERTEX,
+            input_rate,
         },
     );
 

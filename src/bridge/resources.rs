@@ -2,14 +2,16 @@ use std::collections::HashSet;
 
 use ash::vk;
 
+use super::bindings::{build_set_layout, map_binding_type, map_memory_location};
 use super::{VulkanBridge, types::VertexLayoutId};
 use crate::backend::vulkan::{Device, ImageDescriptor, RotexBuffer, RotexImage, RotexSampler, SamplerDescriptor};
 use crate::error::{Error, ErrorKind, vk_error};
 use rotex_types::resource::{
-    CreatedResources, IndexFormat, MaterialId, MeshDescriptor, MeshId, ResourceBatchCreate,
-    ResourceBatchUpdate, ResourceCreateDescriptor, ResourceHandle, ResourceUpdateDescriptor,
-    TextureDescriptor, TextureFormat, TextureId, VertexBufferLayout, VertexFormat,
-    VertexStreamData,
+    BindGroupEntryDescriptor, BindGroupId, BindGroupLayoutId, BufferId, BufferUsage, BufferUsages,
+    ComputePipelineId, CreatedResources, IndexFormat, MaterialId, MeshDescriptor, MeshId,
+    ResourceBatchCreate, ResourceBatchUpdate, ResourceCreateDescriptor, ResourceHandle,
+    ResourceUpdateDescriptor, TextureDescriptor, TextureFormat, TextureId, VertexBufferLayout,
+    VertexFormat, VertexStreamData,
 };
 
 impl VulkanBridge {
@@ -20,6 +22,7 @@ impl VulkanBridge {
                 height: 1,
                 format: TextureFormat::Rgba8Unorm,
                 data: vec![255, 255, 255, 255],
+                render_attachment: false,
             };
             self.default_texture = Some(self.create_texture_resource(&fallback_descriptor)?);
         }
@@ -231,7 +234,84 @@ impl VulkanBridge {
                         .insert(id, super::types::MaterialResource { descriptor: material });
                     handles.push(ResourceHandle::Material(id));
                 }
-                _ => {}
+                ResourceCreateDescriptor::Buffer(buf) => {
+                    let id = BufferId(self.next_buffer_id);
+                    self.next_buffer_id += 1;
+                    let usage = map_buffer_usage(&buf);
+                    let props = map_memory_location(buf.memory_location);
+                    let buffer = RotexBuffer::new(
+                        self.instance.raw(),
+                        self.device.raw(),
+                        buf.size.max(1),
+                        usage,
+                        props,
+                    )?;
+                    if let Some(data) = &buf.initial_data {
+                        write_bytes(self.device.raw(), &buffer, data)?;
+                    }
+                    self.buffers.insert(id, super::types::BufferResource {
+                        buffer,
+                        size: buf.size,
+                    });
+                    handles.push(ResourceHandle::Buffer(id));
+                }
+                ResourceCreateDescriptor::BindGroupLayout(layout) => {
+                    let id = BindGroupLayoutId(self.next_bind_group_layout_id);
+                    self.next_bind_group_layout_id += 1;
+                    let vk_layout = build_set_layout(self.device.raw(), &layout)?;
+                    self.bind_group_layouts.insert(id, super::types::BindGroupLayoutResource {
+                        layout: vk_layout,
+                        desc: layout,
+                    });
+                    handles.push(ResourceHandle::BindGroupLayout(id));
+                }
+                ResourceCreateDescriptor::BindGroup(bg) => {
+                    let id = BindGroupId(self.next_bind_group_id);
+                    self.next_bind_group_id += 1;
+                    let layout = self.bind_group_layouts.get(&bg.layout)
+                        .ok_or(Error::fatal(ErrorKind::Unsupported("bind group layout not found")))?;
+                    let sets = self.general_descriptor_pool.allocate_sets(
+                        self.device.raw(),
+                        &[layout.layout.handle()],
+                    )?;
+                    let set = sets.into_iter().next()
+                        .ok_or(Error::fatal(ErrorKind::Unsupported("failed to allocate descriptor set")))?;
+                    for entry in &bg.entries {
+                        match entry {
+                            BindGroupEntryDescriptor::Buffer { binding, buffer, offset, size } => {
+                                let buf_res = self.buffers.get(buffer)
+                                    .ok_or(Error::fatal(ErrorKind::Unsupported("buffer not found")))?;
+                                let range = if *size == 0 { buf_res.size } else { *size };
+                                let desc_type = layout.desc.entries.iter()
+                                    .find(|e| e.binding == *binding)
+                                    .map(|e| map_binding_type(e.ty))
+                                    .unwrap_or(vk::DescriptorType::STORAGE_BUFFER);
+                                set.write_buffer(
+                                    self.device.raw(),
+                                    *binding,
+                                    &buf_res.buffer,
+                                    *offset,
+                                    range,
+                                    desc_type,
+                                );
+                            }
+                            BindGroupEntryDescriptor::Texture { binding, texture: _ } => {
+                                let _ = binding;
+                            }
+                        }
+                    }
+                    self.bind_groups.insert(id, super::types::BindGroupResource {
+                        descriptor_set: set,
+                    });
+                    handles.push(ResourceHandle::BindGroup(id));
+                }
+                ResourceCreateDescriptor::ComputePipeline(pipeline) => {
+                    let id = ComputePipelineId(self.next_compute_pipeline_id);
+                    self.next_compute_pipeline_id += 1;
+                    let result = self.create_compute_pipeline_resource(&pipeline)?;
+                    self.compute_pipelines.insert(id, result);
+                    handles.push(ResourceHandle::ComputePipeline(id));
+                }
             }
         }
         Ok(CreatedResources { handles })
@@ -417,7 +497,7 @@ fn vertex_format_tag(format: VertexFormat) -> u8 {
     }
 }
 
-fn map_texture_format(format: TextureFormat) -> vk::Format {
+pub fn map_texture_format(format: TextureFormat) -> vk::Format {
     match format {
         TextureFormat::Rgba8Unorm => vk::Format::R8G8B8A8_UNORM,
     }
@@ -462,6 +542,11 @@ fn compute_vertex_layout_id(layout: &VertexBufferLayout) -> VertexLayoutId {
 
     let mut hash = FNV_OFFSET;
     hash = hash_bytes(hash, &layout.array_stride.to_le_bytes());
+    let step_tag = match layout.step_mode {
+        rotex_types::VertexStepMode::Vertex => 0u8,
+        rotex_types::VertexStepMode::Instance => 1u8,
+    };
+    hash = hash_bytes(hash, &[step_tag]);
 
     let mut attributes = layout.attributes.clone();
     attributes.sort_by_key(|attr| (attr.location, attr.offset, vertex_format_tag(attr.format)));
@@ -473,4 +558,33 @@ fn compute_vertex_layout_id(layout: &VertexBufferLayout) -> VertexLayoutId {
     }
 
     VertexLayoutId(hash)
+}
+
+fn map_buffer_usage(desc: &rotex_types::resource::BufferDescriptor) -> vk::BufferUsageFlags {
+    let mut flags = vk::BufferUsageFlags::TRANSFER_DST;
+    let usages = desc.effective_usages();
+    if usages.contains(BufferUsages::VERTEX) {
+        flags |= vk::BufferUsageFlags::VERTEX_BUFFER;
+    }
+    if usages.contains(BufferUsages::INDEX) {
+        flags |= vk::BufferUsageFlags::INDEX_BUFFER;
+    }
+    if usages.contains(BufferUsages::UNIFORM) {
+        flags |= vk::BufferUsageFlags::UNIFORM_BUFFER;
+    }
+    if usages.contains(BufferUsages::STORAGE) {
+        flags |= vk::BufferUsageFlags::STORAGE_BUFFER;
+    }
+    if flags == vk::BufferUsageFlags::TRANSFER_DST {
+        if desc.usage == BufferUsage::Uniform {
+            flags |= vk::BufferUsageFlags::UNIFORM_BUFFER;
+        } else if desc.usage == BufferUsage::Storage {
+            flags |= vk::BufferUsageFlags::STORAGE_BUFFER;
+        } else if desc.usage == BufferUsage::Vertex {
+            flags |= vk::BufferUsageFlags::VERTEX_BUFFER;
+        } else if desc.usage == BufferUsage::Index {
+            flags |= vk::BufferUsageFlags::INDEX_BUFFER;
+        }
+    }
+    flags
 }
