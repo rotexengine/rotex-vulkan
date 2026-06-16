@@ -2,14 +2,15 @@ use std::ffi::CString;
 
 use ash::vk;
 
-use super::VulkanBridge;
-use super::types::{DepthMode, MaterialPipelineKey, VertexLayoutId};
+use super::{VulkanBridge, surface_not_attached_error};
 use crate::backend::vulkan::{
     ColorBlendAttachmentState, ColorBlendState, DepthStencilState, GraphicsPipelineBuilder,
-    RasterizationState, ShaderModule, ShaderStageDescriptor, VertexInputDescriptor,
+    GraphicsPipelineLayout, RasterizationState, ShaderModule, ShaderStageDescriptor,
+    VertexInputDescriptor,
 };
 use crate::error::{Error, ErrorKind};
 use rotex_types::resource::{MaterialDescriptor, MaterialId, VertexBufferLayout, VertexFormat};
+use super::types::{DepthMode, MaterialPipelineKey, VertexLayoutId};
 
 impl VulkanBridge {
     pub(super) fn create_pipeline_for_material(
@@ -20,25 +21,33 @@ impl VulkanBridge {
         extent: vk::Extent2D,
         depth_mode: DepthMode,
     ) -> Result<super::types::MaterialPipeline, Error> {
-        let vert_words = spv_bytes_to_words(&material.vertex_shader_spv);
-        let frag_words = spv_bytes_to_words(&material.fragment_shader_spv);
+        let vert_bytes = material.shaders.vertex.spirv_bytes().ok_or_else(|| {
+            Error::fatal(ErrorKind::Unsupported("Vertex shader has no SPIR-V payload"))
+        })?;
+        let frag_bytes = material.shaders.fragment.spirv_bytes().ok_or_else(|| {
+            Error::fatal(ErrorKind::Unsupported("Fragment shader has no SPIR-V payload"))
+        })?;
+        let vert_words = spv_bytes_to_words(vert_bytes);
+        let frag_words = spv_bytes_to_words(frag_bytes);
         let vk_cull_mode = match material.cull_mode {
             rotex_types::CullMode::None => vk::CullModeFlags::NONE,
             rotex_types::CullMode::Front => vk::CullModeFlags::FRONT,
             rotex_types::CullMode::Back => vk::CullModeFlags::BACK,
         };
-        let vertex_entry = CString::new(material.vertex_entry.as_str()).map_err(|_| {
+        let vertex_entry = CString::new(material.shaders.vertex.entry_point.as_str()).map_err(|_| {
             Error::fatal(ErrorKind::Unsupported(
                 "Vertex shader entry contains interior null byte",
             ))
         })?;
-        let fragment_entry = CString::new(material.fragment_entry.as_str()).map_err(|_| {
+        let fragment_entry = CString::new(material.shaders.fragment.entry_point.as_str()).map_err(|_| {
             Error::fatal(ErrorKind::Unsupported(
                 "Fragment shader entry contains interior null byte",
             ))
         })?;
         let vert = ShaderModule::new(self.device.raw(), &vert_words)?;
         let frag = ShaderModule::new(self.device.raw(), &frag_words)?;
+        let set_layouts = [self.texture_set_layout.handle()];
+        let layout = GraphicsPipelineLayout::new(self.device.raw(), &set_layouts, &[])?;
         let pipeline = GraphicsPipelineBuilder::new()
             .with_shader_stage(
                 ShaderStageDescriptor::new(vk::ShaderStageFlags::VERTEX, &vert)
@@ -66,12 +75,12 @@ impl VulkanBridge {
             })
             .with_vertex_input_state(vertex_input_descriptor(vertex_layout)?)
             .with_render_pass(render_pass)
-            .with_layout(self.shared_pipeline_layout.handle())
+            .with_layout(layout.handle())
             .with_extent(extent.width, extent.height)
             .build(self.device.raw())?;
         vert.destroy(self.device.raw());
         frag.destroy(self.device.raw());
-        Ok(super::types::MaterialPipeline { pipeline })
+        Ok(super::types::MaterialPipeline { layout, pipeline })
     }
 
     pub(super) fn pipeline_handle_for(
@@ -80,8 +89,14 @@ impl VulkanBridge {
         vertex_layout_id: VertexLayoutId,
         depth_mode: DepthMode,
         render_pass: vk::RenderPass,
-        extent: vk::Extent2D,
     ) -> Result<(vk::Pipeline, vk::PipelineLayout), Error> {
+        let extent = self
+            .surface_state
+            .as_ref()
+            .ok_or(surface_not_attached_error())?
+            .swapchain
+            .raw()
+            .extent();
         let pipeline_key = MaterialPipelineKey {
             material_id,
             vertex_layout_id,
@@ -119,10 +134,7 @@ impl VulkanBridge {
             .material_pipelines
             .get(&pipeline_key)
             .expect("pipeline must exist");
-        Ok((
-            pipeline.pipeline.handle(),
-            self.shared_pipeline_layout.handle(),
-        ))
+        Ok((pipeline.pipeline.handle(), pipeline.layout.handle()))
     }
 
     pub(super) fn invalidate_material_pipelines(&mut self, material_id: MaterialId) {
@@ -132,6 +144,7 @@ impl VulkanBridge {
         for key in keys {
             if let Some(pipeline) = self.material_pipelines.remove(&key) {
                 pipeline.pipeline.destroy(self.device.raw());
+                pipeline.layout.destroy(self.device.raw());
             }
         }
     }
@@ -139,6 +152,7 @@ impl VulkanBridge {
     pub(super) fn destroy_all_pipelines(&mut self) {
         for (_, pipeline) in self.material_pipelines.drain() {
             pipeline.pipeline.destroy(self.device.raw());
+            pipeline.layout.destroy(self.device.raw());
         }
         self.pipelines_by_material.clear();
     }
@@ -150,12 +164,13 @@ fn vertex_input_descriptor(layout: &VertexBufferLayout) -> Result<VertexInputDes
             "Vertex layout stride exceeds Vulkan limits",
         )));
     }
-    let mut descriptor =
-        VertexInputDescriptor::default().with_binding(vk::VertexInputBindingDescription {
+    let mut descriptor = VertexInputDescriptor::default().with_binding(
+        vk::VertexInputBindingDescription {
             binding: 0,
             stride: layout.array_stride as u32,
             input_rate: vk::VertexInputRate::VERTEX,
-        });
+        },
+    );
 
     for attribute in &layout.attributes {
         if attribute.offset > u32::MAX as u64 {

@@ -91,7 +91,8 @@ impl Instance {
         physical_devices
             .into_iter()
             .map(|handle| {
-                let properties = unsafe { self.instance.get_physical_device_properties(handle) };
+                let properties =
+                    unsafe { self.instance.get_physical_device_properties(handle) };
                 let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
                     .to_string_lossy()
                     .into_owned();

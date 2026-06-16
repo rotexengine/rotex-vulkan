@@ -217,11 +217,6 @@ impl VulkanBridge {
                     .textures
                     .get(&texture_id)
                     .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
-                if !texture.descriptor.render_attachment {
-                    return Err(Error::fatal(ErrorKind::Unsupported(
-                        "Texture is not created with render_attachment enabled",
-                    )));
-                }
                 let format = super::resources::map_texture_format(texture.descriptor.format);
                 let render_pass = create_render_pass(device, format, depth_format, config)?;
                 let extent = vk::Extent2D {

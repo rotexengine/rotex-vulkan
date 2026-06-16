@@ -3,35 +3,27 @@ use std::collections::HashSet;
 use ash::vk;
 
 use super::{VulkanBridge, types::VertexLayoutId};
-use crate::backend::vulkan::{
-    Device, ImageDescriptor, RotexBuffer, RotexImage, RotexSampler, SamplerDescriptor,
-};
+use crate::backend::vulkan::{Device, ImageDescriptor, RotexBuffer, RotexImage, RotexSampler, SamplerDescriptor};
 use crate::error::{Error, ErrorKind, vk_error};
 use rotex_types::resource::{
-    BufferDescriptor, BufferId, BufferUsage, ComputePipelineId, CreatedResources, IndexFormat,
-    MaterialId, MeshDescriptor, MeshId, ResourceBatchCreate, ResourceBatchUpdate,
-    ResourceCreateDescriptor, ResourceHandle, ResourceUpdateDescriptor, TextureDescriptor,
-    TextureFormat, TextureId, TextureReadback, VertexBufferLayout, VertexFormat,
+    CreatedResources, IndexFormat, MaterialId, MeshDescriptor, MeshId, ResourceBatchCreate,
+    ResourceBatchUpdate, ResourceCreateDescriptor, ResourceHandle, ResourceUpdateDescriptor,
+    TextureDescriptor, TextureFormat, TextureId, VertexBufferLayout, VertexFormat,
+    VertexStreamData,
 };
 
 impl VulkanBridge {
-    pub(super) fn ensure_default_texture(
-        &mut self,
-    ) -> Result<&super::types::TextureResource, Error> {
+    pub(super) fn ensure_default_texture(&mut self) -> Result<&super::types::TextureResource, Error> {
         if self.default_texture.is_none() {
             let fallback_descriptor = TextureDescriptor {
                 width: 1,
                 height: 1,
                 format: TextureFormat::Rgba8Unorm,
                 data: vec![255, 255, 255, 255],
-                render_attachment: false,
             };
             self.default_texture = Some(self.create_texture_resource(&fallback_descriptor)?);
         }
-        Ok(self
-            .default_texture
-            .as_ref()
-            .expect("default texture initialized"))
+        Ok(self.default_texture.as_ref().expect("default texture initialized"))
     }
 
     pub(super) fn create_texture_resource(
@@ -58,7 +50,7 @@ impl VulkanBridge {
                     height: desc.height,
                     depth: 1,
                 },
-                texture_usage_flags(desc),
+                vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             ),
         )?;
@@ -67,9 +59,7 @@ impl VulkanBridge {
             SamplerDescriptor::default().with_filters(vk::Filter::LINEAR, vk::Filter::LINEAR),
         )?;
 
-        if let Err(err) =
-            self.upload_staging_texture(&staging_buffer, &mut image, desc.width, desc.height)
-        {
+        if let Err(err) = self.upload_staging_texture(&staging_buffer, &mut image, desc.width, desc.height) {
             sampler.destroy(self.device.raw());
             image.destroy(self.device.raw());
             staging_buffer.destroy(self.device.raw());
@@ -77,9 +67,9 @@ impl VulkanBridge {
         }
         staging_buffer.destroy(self.device.raw());
 
-        let layouts = [self.material_set_layout.handle()];
+        let layouts = [self.texture_set_layout.handle()];
         let mut descriptor_sets = match self
-            .material_descriptor_pool
+            .texture_descriptor_pool
             .allocate_sets(self.device.raw(), &layouts)
         {
             Ok(sets) => sets,
@@ -168,7 +158,10 @@ impl VulkanBridge {
         if desc.index_count == 0 {
             return Err(Error::fatal(ErrorKind::NoCompatibleDevice));
         }
-        let vertex_size = desc.vertex_data.len() as vk::DeviceSize;
+        let (vertex_size, vertex_data_slice) = match &desc.vertex_streams[0].data {
+            VertexStreamData::Static(data) => (data.len() as vk::DeviceSize, data.as_slice()),
+            VertexStreamData::External(_) => (0, &[][..]),
+        };
         let index_size = desc.index_data.len() as vk::DeviceSize;
         let index_type = map_index_type(desc.index_format);
         let min_index_bytes = desc.index_count as usize * index_format_size(desc.index_format);
@@ -180,7 +173,7 @@ impl VulkanBridge {
         let vertex_buffer = RotexBuffer::new(
             self.instance.raw(),
             self.device.raw(),
-            vertex_size,
+            vertex_size.max(1),
             vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
@@ -191,7 +184,9 @@ impl VulkanBridge {
             vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
-        write_bytes(self.device.raw(), &vertex_buffer, &desc.vertex_data)?;
+        if !vertex_data_slice.is_empty() {
+            write_bytes(self.device.raw(), &vertex_buffer, vertex_data_slice)?;
+        }
         write_bytes(self.device.raw(), &index_buffer, &desc.index_data)?;
         Ok(super::types::MeshResource {
             vertex_buffer,
@@ -210,8 +205,12 @@ impl VulkanBridge {
         for item in descriptor.resources {
             match item {
                 ResourceCreateDescriptor::Mesh(mesh) => {
-                    validate_vertex_layout(&mesh.vertex_layout, mesh.vertex_data.len())?;
-                    let vertex_layout_id = self.intern_vertex_layout(&mesh.vertex_layout)?;
+                    let vertex_data_len = match &mesh.vertex_streams[0].data {
+                        VertexStreamData::Static(data) => data.len(),
+                        VertexStreamData::External(_) => 0,
+                    };
+                    validate_vertex_layout(&mesh.vertex_streams[0].layout, vertex_data_len)?;
+                    let vertex_layout_id = self.intern_vertex_layout(&mesh.vertex_streams[0].layout)?;
                     let id = MeshId(self.next_mesh_id);
                     self.next_mesh_id += 1;
                     let resource = self.create_mesh_resource(&mesh, vertex_layout_id)?;
@@ -228,40 +227,28 @@ impl VulkanBridge {
                 ResourceCreateDescriptor::Material(material) => {
                     let id = MaterialId(self.next_material_id);
                     self.next_material_id += 1;
-                    self.materials.insert(
-                        id,
-                        super::types::MaterialResource {
-                            descriptor: material,
-                        },
-                    );
+                    self.materials
+                        .insert(id, super::types::MaterialResource { descriptor: material });
                     handles.push(ResourceHandle::Material(id));
                 }
-                ResourceCreateDescriptor::Buffer(buffer) => {
-                    let id = BufferId(self.next_buffer_id);
-                    self.next_buffer_id += 1;
-                    let resource = self.create_buffer_resource(&buffer)?;
-                    self.buffers.insert(id, resource);
-                    handles.push(ResourceHandle::Buffer(id));
-                }
-                ResourceCreateDescriptor::ComputePipeline(compute_pipeline) => {
-                    let id = ComputePipelineId(self.next_compute_pipeline_id);
-                    self.next_compute_pipeline_id += 1;
-                    let resource = self.create_compute_pipeline_resource(&compute_pipeline)?;
-                    self.compute_pipelines.insert(id, resource);
-                    handles.push(ResourceHandle::ComputePipeline(id));
-                }
+                _ => {}
             }
         }
         Ok(CreatedResources { handles })
     }
 
-    pub fn update_resources(&mut self, descriptor: ResourceBatchUpdate) -> Result<(), Error> {
+    pub fn update_resources(
+        &mut self,
+        descriptor: ResourceBatchUpdate,
+    ) -> Result<(), Error> {
         if descriptor.updates.iter().any(|update| {
             matches!(
                 update,
                 ResourceUpdateDescriptor::Mesh { .. }
+                    | ResourceUpdateDescriptor::MeshVertices { .. }
                     | ResourceUpdateDescriptor::Texture { .. }
                     | ResourceUpdateDescriptor::Material { .. }
+                    | ResourceUpdateDescriptor::Buffer { .. }
             )
         }) {
             self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
@@ -270,18 +257,20 @@ impl VulkanBridge {
             match item {
                 ResourceUpdateDescriptor::Mesh {
                     id,
-                    vertex_data,
-                    vertex_layout,
+                    vertex_streams,
                     index_data,
                     index_format,
                     index_count,
                 } => {
-                    validate_vertex_layout(&vertex_layout, vertex_data.len())?;
-                    let vertex_layout_id = self.intern_vertex_layout(&vertex_layout)?;
+                    let vertex_data_len = match &vertex_streams[0].data {
+                        VertexStreamData::Static(data) => data.len(),
+                        VertexStreamData::External(_) => 0,
+                    };
+                    validate_vertex_layout(&vertex_streams[0].layout, vertex_data_len)?;
+                    let vertex_layout_id = self.intern_vertex_layout(&vertex_streams[0].layout)?;
                     let resource = self.create_mesh_resource(
                         &MeshDescriptor {
-                            vertex_data,
-                            vertex_layout,
+                            vertex_streams,
                             index_data,
                             index_format,
                             index_count,
@@ -303,25 +292,12 @@ impl VulkanBridge {
                         .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
                     let mut updated_texture_descriptor = old_texture_descriptor.descriptor.clone();
                     updated_texture_descriptor.data = data;
-                    let updated_texture =
-                        self.create_texture_resource(&updated_texture_descriptor)?;
+                    let updated_texture = self.create_texture_resource(&updated_texture_descriptor)?;
                     let previous = self
                         .textures
                         .insert(id, updated_texture)
                         .expect("texture must exist after get check");
-                    previous.destroy(self.device.raw(), &self.material_descriptor_pool);
-                }
-                ResourceUpdateDescriptor::Buffer { id, data } => {
-                    let buffer = self
-                        .buffers
-                        .get(&id)
-                        .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
-                    if data.len() as u64 > buffer.size {
-                        return Err(Error::fatal(ErrorKind::Unsupported(
-                            "Buffer update data exceeds buffer size",
-                        )));
-                    }
-                    write_bytes(self.device.raw(), &buffer.buffer, &data)?;
+                    previous.destroy(self.device.raw(), &self.texture_descriptor_pool);
                 }
                 ResourceUpdateDescriptor::Material {
                     id,
@@ -340,191 +316,13 @@ impl VulkanBridge {
                     }
                     self.invalidate_material_pipelines(id);
                 }
+                _ => {}
             }
         }
         Ok(())
     }
 
-    pub fn read_texture(&mut self, id: TextureId) -> Result<TextureReadback, Error> {
-        let texture = self
-            .textures
-            .get(&id)
-            .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
-        let width = texture.descriptor.width;
-        let height = texture.descriptor.height;
-        let format = texture.descriptor.format;
-        let byte_len =
-            format
-                .expected_byte_len(width, height)
-                .ok_or(Error::fatal(ErrorKind::Unsupported(
-                    "Texture dimensions overflow expected byte size",
-                )))?;
-
-        let staging_buffer = RotexBuffer::new(
-            self.instance.raw(),
-            self.device.raw(),
-            byte_len as vk::DeviceSize,
-            vk::BufferUsageFlags::TRANSFER_DST,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-
-        let result = (|| -> Result<TextureReadback, Error> {
-            self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
-            self.in_flight_fence.reset(self.device.raw())?;
-            unsafe {
-                self.device.raw().logical_device().reset_command_buffer(
-                    self.command_buffer.handle(),
-                    vk::CommandBufferResetFlags::empty(),
-                )
-            }
-            .map_err(vk_error)?;
-            self.command_buffer.begin(
-                self.device.raw(),
-                vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
-            )?;
-            texture.image.transition_layout(
-                self.device.raw(),
-                &self.command_buffer,
-                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            );
-            self.command_buffer.copy_image_to_buffer(
-                self.device.raw(),
-                texture.image.handle(),
-                staging_buffer.handle(),
-                width,
-                height,
-            );
-            texture.image.transition_layout(
-                self.device.raw(),
-                &self.command_buffer,
-                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            );
-            self.command_buffer.end(self.device.raw())?;
-
-            let queue = self.device.raw().get_queue(self.graphics_queue_index, 0);
-            let command_buffers = [self.command_buffer.handle()];
-            let submit = vk::SubmitInfo::default().command_buffers(&command_buffers);
-            unsafe {
-                self.device.raw().logical_device().queue_submit(
-                    queue,
-                    &[submit],
-                    self.in_flight_fence.handle(),
-                )
-            }
-            .map_err(vk_error)?;
-            self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
-
-            let mapped_ptr = staging_buffer.map(self.device.raw())? as *const u8;
-            let mut bytes = vec![0_u8; byte_len];
-            unsafe {
-                std::ptr::copy_nonoverlapping(mapped_ptr, bytes.as_mut_ptr(), byte_len);
-            }
-            staging_buffer.unmap(self.device.raw());
-            Ok(TextureReadback {
-                data: bytes,
-                format,
-                width,
-                height,
-            })
-        })();
-
-        staging_buffer.destroy(self.device.raw());
-        result
-    }
-
-    pub(super) fn create_buffer_resource(
-        &mut self,
-        desc: &BufferDescriptor,
-    ) -> Result<super::types::BufferResource, Error> {
-        if desc.size == 0 {
-            return Err(Error::fatal(ErrorKind::Unsupported(
-                "Buffer size must be greater than zero",
-            )));
-        }
-        let mut usage_flags = map_buffer_usage(desc.usage);
-        if desc.initial_data.is_some() {
-            usage_flags |= vk::BufferUsageFlags::TRANSFER_DST;
-        }
-        let memory_flags = if desc.usage == BufferUsage::Storage {
-            vk::MemoryPropertyFlags::DEVICE_LOCAL
-        } else {
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT
-        };
-        let buffer = RotexBuffer::new(
-            self.instance.raw(),
-            self.device.raw(),
-            desc.size,
-            usage_flags,
-            memory_flags,
-        )?;
-        if let Some(data) = &desc.initial_data {
-            if data.len() as u64 > desc.size {
-                return Err(Error::fatal(ErrorKind::Unsupported(
-                    "Buffer initial data exceeds buffer size",
-                )));
-            }
-            if desc.usage == BufferUsage::Storage {
-                self.upload_buffer_data(&buffer, data)?;
-            } else {
-                write_bytes(self.device.raw(), &buffer, data)?;
-            }
-        }
-        Ok(super::types::BufferResource {
-            buffer,
-            size: desc.size,
-            usage: desc.usage,
-        })
-    }
-
-    fn upload_buffer_data(&mut self, buffer: &RotexBuffer, data: &[u8]) -> Result<(), Error> {
-        let staging = RotexBuffer::new(
-            self.instance.raw(),
-            self.device.raw(),
-            data.len() as vk::DeviceSize,
-            vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-        write_bytes(self.device.raw(), &staging, data)?;
-        self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
-        self.in_flight_fence.reset(self.device.raw())?;
-        unsafe {
-            self.device.raw().logical_device().reset_command_buffer(
-                self.command_buffer.handle(),
-                vk::CommandBufferResetFlags::empty(),
-            )
-        }
-        .map_err(vk_error)?;
-        self.command_buffer.begin(
-            self.device.raw(),
-            vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
-        )?;
-        self.command_buffer.copy_buffer(
-            self.device.raw(),
-            staging.handle(),
-            buffer.handle(),
-            data.len() as vk::DeviceSize,
-        );
-        self.command_buffer.end(self.device.raw())?;
-        let command_buffers = [self.command_buffer.handle()];
-        let submit = vk::SubmitInfo::default().command_buffers(&command_buffers);
-        let queue = self.device.raw().get_queue(self.graphics_queue_index, 0);
-        unsafe {
-            self.device.raw().logical_device().queue_submit(
-                queue,
-                &[submit],
-                self.in_flight_fence.handle(),
-            )
-        }
-        .map_err(vk_error)?;
-        self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
-        staging.destroy(self.device.raw());
-        Ok(())
-    }
-
-    fn intern_vertex_layout(
-        &mut self,
-        layout: &VertexBufferLayout,
-    ) -> Result<VertexLayoutId, Error> {
+    fn intern_vertex_layout(&mut self, layout: &VertexBufferLayout) -> Result<VertexLayoutId, Error> {
         let layout_id = compute_vertex_layout_id(layout);
         if let Some(existing) = self.vertex_layouts.get(&layout_id) {
             if existing != layout {
@@ -546,15 +344,6 @@ fn write_bytes(device: &Device, buffer: &RotexBuffer, data: &[u8]) -> Result<(),
     Ok(())
 }
 
-fn map_buffer_usage(usage: BufferUsage) -> vk::BufferUsageFlags {
-    match usage {
-        BufferUsage::Vertex => vk::BufferUsageFlags::VERTEX_BUFFER,
-        BufferUsage::Index => vk::BufferUsageFlags::INDEX_BUFFER,
-        BufferUsage::Uniform => vk::BufferUsageFlags::UNIFORM_BUFFER,
-        BufferUsage::Storage => vk::BufferUsageFlags::STORAGE_BUFFER,
-    }
-}
-
 fn map_index_type(index_format: IndexFormat) -> vk::IndexType {
     match index_format {
         IndexFormat::Uint16 => vk::IndexType::UINT16,
@@ -569,10 +358,7 @@ fn index_format_size(index_format: IndexFormat) -> usize {
     }
 }
 
-fn validate_vertex_layout(
-    layout: &VertexBufferLayout,
-    vertex_data_len: usize,
-) -> Result<(), Error> {
+fn validate_vertex_layout(layout: &VertexBufferLayout, vertex_data_len: usize) -> Result<(), Error> {
     if layout.array_stride == 0 {
         return Err(Error::fatal(ErrorKind::Unsupported(
             "Vertex layout stride must be greater than zero",
@@ -631,24 +417,16 @@ fn vertex_format_tag(format: VertexFormat) -> u8 {
     }
 }
 
-fn texture_usage_flags(desc: &TextureDescriptor) -> vk::ImageUsageFlags {
-    let mut usage = vk::ImageUsageFlags::TRANSFER_DST
-        | vk::ImageUsageFlags::TRANSFER_SRC
-        | vk::ImageUsageFlags::SAMPLED;
-    if desc.render_attachment {
-        usage |= vk::ImageUsageFlags::COLOR_ATTACHMENT;
-    }
-    usage
-}
-
-pub(super) fn map_texture_format(format: TextureFormat) -> vk::Format {
+fn map_texture_format(format: TextureFormat) -> vk::Format {
     match format {
         TextureFormat::Rgba8Unorm => vk::Format::R8G8B8A8_UNORM,
     }
 }
 
 fn expected_texture_bytes(desc: &TextureDescriptor) -> Option<usize> {
-    desc.format.expected_byte_len(desc.width, desc.height)
+    (desc.width as usize)
+        .checked_mul(desc.height as usize)?
+        .checked_mul(4)
 }
 
 fn validate_texture_descriptor(desc: &TextureDescriptor) -> Result<(), Error> {
@@ -664,7 +442,7 @@ fn validate_texture_descriptor(desc: &TextureDescriptor) -> Result<(), Error> {
     };
     if desc.data.len() != expected_bytes {
         return Err(Error::fatal(ErrorKind::Unsupported(
-            "Texture data size does not match format*width*height",
+            "Texture data size does not match width*height*4",
         )));
     }
     Ok(())

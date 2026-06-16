@@ -1,8 +1,8 @@
 use ash::vk;
 
 use super::super::device::Device;
-use crate::Error;
 use crate::error::vk_error;
+use crate::Error;
 
 pub struct DescriptorSetLayout {
     handle: vk::DescriptorSetLayout,

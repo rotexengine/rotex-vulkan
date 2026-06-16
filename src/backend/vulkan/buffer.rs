@@ -27,11 +27,7 @@ impl RotexBuffer {
             .map_err(ErrorKind::Vulkan)
             .map_err(Error::fatal)?;
 
-        let requirements = unsafe {
-            device
-                .logical_device()
-                .get_buffer_memory_requirements(handle)
-        };
+        let requirements = unsafe { device.logical_device().get_buffer_memory_requirements(handle) };
         let memory_type =
             device.find_memory_type(instance, requirements.memory_type_bits, properties)?;
 

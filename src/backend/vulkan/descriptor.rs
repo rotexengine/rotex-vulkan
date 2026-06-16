@@ -2,8 +2,8 @@ use ash::vk;
 
 use super::buffer::RotexBuffer;
 use super::device::Device;
-use crate::Error;
 use crate::error::vk_error;
+use crate::Error;
 
 pub struct DescriptorSet {
     handle: vk::DescriptorSet,

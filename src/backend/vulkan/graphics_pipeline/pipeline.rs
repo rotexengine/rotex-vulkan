@@ -1,11 +1,11 @@
 use ash::vk;
 
-use super::super::device::Device;
 use super::shader::ShaderStageDescriptor;
 use super::state::{
     ColorBlendState, DepthStencilState, MultisampleState, RasterizationState, Viewport,
 };
 use super::vertex::VertexInputDescriptor;
+use super::super::device::Device;
 use crate::error::vk_error;
 use crate::{Error, ErrorKind};
 
