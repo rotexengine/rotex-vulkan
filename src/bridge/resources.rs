@@ -9,6 +9,7 @@ use rotex_types::resource::{
     CreatedResources, IndexFormat, MaterialId, MeshDescriptor, MeshId, ResourceBatchCreate,
     ResourceBatchUpdate, ResourceCreateDescriptor, ResourceHandle, ResourceUpdateDescriptor,
     TextureDescriptor, TextureFormat, TextureId, VertexBufferLayout, VertexFormat,
+    VertexStreamData,
 };
 
 impl VulkanBridge {
@@ -157,7 +158,10 @@ impl VulkanBridge {
         if desc.index_count == 0 {
             return Err(Error::fatal(ErrorKind::NoCompatibleDevice));
         }
-        let vertex_size = desc.vertex_data.len() as vk::DeviceSize;
+        let (vertex_size, vertex_data_slice) = match &desc.vertex_streams[0].data {
+            VertexStreamData::Static(data) => (data.len() as vk::DeviceSize, data.as_slice()),
+            VertexStreamData::External(_) => (0, &[][..]),
+        };
         let index_size = desc.index_data.len() as vk::DeviceSize;
         let index_type = map_index_type(desc.index_format);
         let min_index_bytes = desc.index_count as usize * index_format_size(desc.index_format);
@@ -169,7 +173,7 @@ impl VulkanBridge {
         let vertex_buffer = RotexBuffer::new(
             self.instance.raw(),
             self.device.raw(),
-            vertex_size,
+            vertex_size.max(1),
             vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
@@ -180,7 +184,9 @@ impl VulkanBridge {
             vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
-        write_bytes(self.device.raw(), &vertex_buffer, &desc.vertex_data)?;
+        if !vertex_data_slice.is_empty() {
+            write_bytes(self.device.raw(), &vertex_buffer, vertex_data_slice)?;
+        }
         write_bytes(self.device.raw(), &index_buffer, &desc.index_data)?;
         Ok(super::types::MeshResource {
             vertex_buffer,
@@ -199,8 +205,12 @@ impl VulkanBridge {
         for item in descriptor.resources {
             match item {
                 ResourceCreateDescriptor::Mesh(mesh) => {
-                    validate_vertex_layout(&mesh.vertex_layout, mesh.vertex_data.len())?;
-                    let vertex_layout_id = self.intern_vertex_layout(&mesh.vertex_layout)?;
+                    let vertex_data_len = match &mesh.vertex_streams[0].data {
+                        VertexStreamData::Static(data) => data.len(),
+                        VertexStreamData::External(_) => 0,
+                    };
+                    validate_vertex_layout(&mesh.vertex_streams[0].layout, vertex_data_len)?;
+                    let vertex_layout_id = self.intern_vertex_layout(&mesh.vertex_streams[0].layout)?;
                     let id = MeshId(self.next_mesh_id);
                     self.next_mesh_id += 1;
                     let resource = self.create_mesh_resource(&mesh, vertex_layout_id)?;
@@ -221,6 +231,7 @@ impl VulkanBridge {
                         .insert(id, super::types::MaterialResource { descriptor: material });
                     handles.push(ResourceHandle::Material(id));
                 }
+                _ => {}
             }
         }
         Ok(CreatedResources { handles })
@@ -234,8 +245,10 @@ impl VulkanBridge {
             matches!(
                 update,
                 ResourceUpdateDescriptor::Mesh { .. }
+                    | ResourceUpdateDescriptor::MeshVertices { .. }
                     | ResourceUpdateDescriptor::Texture { .. }
                     | ResourceUpdateDescriptor::Material { .. }
+                    | ResourceUpdateDescriptor::Buffer { .. }
             )
         }) {
             self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
@@ -244,18 +257,20 @@ impl VulkanBridge {
             match item {
                 ResourceUpdateDescriptor::Mesh {
                     id,
-                    vertex_data,
-                    vertex_layout,
+                    vertex_streams,
                     index_data,
                     index_format,
                     index_count,
                 } => {
-                    validate_vertex_layout(&vertex_layout, vertex_data.len())?;
-                    let vertex_layout_id = self.intern_vertex_layout(&vertex_layout)?;
+                    let vertex_data_len = match &vertex_streams[0].data {
+                        VertexStreamData::Static(data) => data.len(),
+                        VertexStreamData::External(_) => 0,
+                    };
+                    validate_vertex_layout(&vertex_streams[0].layout, vertex_data_len)?;
+                    let vertex_layout_id = self.intern_vertex_layout(&vertex_streams[0].layout)?;
                     let resource = self.create_mesh_resource(
                         &MeshDescriptor {
-                            vertex_data,
-                            vertex_layout,
+                            vertex_streams,
                             index_data,
                             index_format,
                             index_count,
@@ -301,6 +316,7 @@ impl VulkanBridge {
                     }
                     self.invalidate_material_pipelines(id);
                 }
+                _ => {}
             }
         }
         Ok(())

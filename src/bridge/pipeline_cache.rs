@@ -21,19 +21,25 @@ impl VulkanBridge {
         extent: vk::Extent2D,
         depth_mode: DepthMode,
     ) -> Result<super::types::MaterialPipeline, Error> {
-        let vert_words = spv_bytes_to_words(&material.vertex_shader_spv);
-        let frag_words = spv_bytes_to_words(&material.fragment_shader_spv);
+        let vert_bytes = material.shaders.vertex.spirv_bytes().ok_or_else(|| {
+            Error::fatal(ErrorKind::Unsupported("Vertex shader has no SPIR-V payload"))
+        })?;
+        let frag_bytes = material.shaders.fragment.spirv_bytes().ok_or_else(|| {
+            Error::fatal(ErrorKind::Unsupported("Fragment shader has no SPIR-V payload"))
+        })?;
+        let vert_words = spv_bytes_to_words(vert_bytes);
+        let frag_words = spv_bytes_to_words(frag_bytes);
         let vk_cull_mode = match material.cull_mode {
             rotex_types::CullMode::None => vk::CullModeFlags::NONE,
             rotex_types::CullMode::Front => vk::CullModeFlags::FRONT,
             rotex_types::CullMode::Back => vk::CullModeFlags::BACK,
         };
-        let vertex_entry = CString::new(material.vertex_entry.as_str()).map_err(|_| {
+        let vertex_entry = CString::new(material.shaders.vertex.entry_point.as_str()).map_err(|_| {
             Error::fatal(ErrorKind::Unsupported(
                 "Vertex shader entry contains interior null byte",
             ))
         })?;
-        let fragment_entry = CString::new(material.fragment_entry.as_str()).map_err(|_| {
+        let fragment_entry = CString::new(material.shaders.fragment.entry_point.as_str()).map_err(|_| {
             Error::fatal(ErrorKind::Unsupported(
                 "Fragment shader entry contains interior null byte",
             ))

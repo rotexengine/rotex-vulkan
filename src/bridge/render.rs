@@ -9,7 +9,7 @@ use crate::backend::vulkan::{
 use crate::core::Instance;
 use crate::error::{Error, ErrorKind, vk_error};
 use rotex_types::{
-    FrameDescriptor as FrontendFrameDescriptor, MeshInstanceDescriptor,
+    FrameDescriptor as FrontendFrameDescriptor, FramePass, MeshInstanceDescriptor,
     SceneDescriptor as FrontendSceneDescriptor,
 };
 
@@ -56,7 +56,8 @@ impl VulkanBridge {
             vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
         )?;
 
-        for pass in &frame.passes {
+        for pass_outer in &frame.passes {
+            let FramePass::Graphics(pass) = pass_outer else { continue; };
             let draw_list: Vec<usize> = if pass.instance_indices.is_empty() {
                 (0..scene.instances.len()).collect()
             } else {
@@ -67,7 +68,7 @@ impl VulkanBridge {
                     .collect()
             };
 
-            let pass_uses_depth = pass.clear_depth.is_some()
+            let pass_uses_depth = pass.uses_depth_attachment()
                 || draw_list.iter().any(|idx| {
                     let inst = scene.instances[*idx];
                     self.materials
@@ -87,7 +88,7 @@ impl VulkanBridge {
             if pass_uses_depth {
                 clear_values.push(vk::ClearValue {
                     depth_stencil: vk::ClearDepthStencilValue {
-                        depth: pass.clear_depth.unwrap_or(1.0),
+                        depth: pass.clear_depth,
                         stencil: 0,
                     },
                 });
