@@ -57,9 +57,11 @@ impl VulkanBridge {
             depth_format,
             super::render::RenderPassConfig {
                 color_load: ash::vk::AttachmentLoadOp::CLEAR,
+                color_initial_layout: ash::vk::ImageLayout::UNDEFINED,
                 color_final_layout: ash::vk::ImageLayout::PRESENT_SRC_KHR,
                 depth_load: depth_format.map(|_| ash::vk::AttachmentLoadOp::CLEAR),
                 depth_store: ash::vk::AttachmentStoreOp::DONT_CARE,
+                depth_initial_layout: ash::vk::ImageLayout::UNDEFINED,
             },
         )?;
         let depth_image = match depth_format {
@@ -161,30 +163,6 @@ impl VulkanBridge {
         Err(surface_not_attached_error())
     }
 
-    pub fn destroy(mut self) {
-        let _ = self.in_flight_fence.wait(self.device.raw(), u64::MAX);
-        unsafe {
-            let _ = self.device.raw().logical_device().device_wait_idle();
-        }
-        self.destroy_all_pipelines();
-        for (_, mesh) in self.meshes.drain() {
-            mesh.vertex_buffer.destroy(self.device.raw());
-            mesh.index_buffer.destroy(self.device.raw());
-        }
-        for (_, texture) in self.textures.drain() {
-            texture.destroy(self.device.raw(), &self.texture_descriptor_pool);
-        }
-        if let Some(default_texture) = self.default_texture.take() {
-            default_texture.destroy(self.device.raw(), &self.texture_descriptor_pool);
-        }
-        self.destroy_surface_state();
-        self.texture_descriptor_pool.destroy(self.device.raw());
-        self.texture_set_layout.destroy(self.device.raw());
-        self.command_pool.destroy(self.device.raw());
-        self.in_flight_fence.destroy(self.device.raw());
-        self.device.destroy();
-        self.instance.destroy();
-    }
 
     pub(super) fn destroy_surface_state(&mut self) {
         if let Some(state) = self.surface_state.take() {

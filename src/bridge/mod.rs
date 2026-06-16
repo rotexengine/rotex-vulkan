@@ -37,8 +37,6 @@ pub struct VulkanBridge {
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
     in_flight_fence: Fence,
-    texture_set_layout: DescriptorSetLayout,
-    texture_descriptor_pool: DescriptorPool,
     frame_slots: Vec<FrameSlot>,
     frames_in_flight: u32,
     current_frame_index: u32,
@@ -49,12 +47,12 @@ pub struct VulkanBridge {
     meshes: HashMap<MeshId, MeshResource>,
     materials: HashMap<MaterialId, MaterialResource>,
     textures: HashMap<TextureId, TextureResource>,
-    default_texture: Option<TextureResource>,
     bind_group_layouts: HashMap<BindGroupLayoutId, BindGroupLayoutResource>,
     bind_groups: HashMap<BindGroupId, BindGroupResource>,
     general_descriptor_pool: DescriptorPoolManager,
     storage_descriptor_pool: DescriptorPoolManager,
     empty_set_layout: DescriptorSetLayout,
+    fallback_sampler: crate::backend::vulkan::RotexSampler,
     pass_target_cache: PassTargetCache,
     material_pipelines: HashMap<MaterialPipelineKey, MaterialPipeline>,
     pipelines_by_material: HashMap<MaterialId, HashSet<MaterialPipelineKey>>,
@@ -67,13 +65,6 @@ pub struct VulkanBridge {
     active_pipeline_layout: Option<vk::PipelineLayout>,
     active_pass: Option<rotex_types::PassDescriptor>,
     active_target_role: Option<pass_targets::TargetPassRole>,
-    next_mesh_id: u64,
-    next_material_id: u64,
-    next_texture_id: u64,
-    next_buffer_id: u64,
-    next_compute_pipeline_id: u64,
-    next_bind_group_layout_id: u64,
-    next_bind_group_id: u64,
 }
 
 use ash::vk;
@@ -165,10 +156,7 @@ impl VulkanBridge {
             mesh.index_buffer.destroy(device);
         }
         for (_, tex) in self.textures.drain() {
-            tex.destroy(device, &self.texture_descriptor_pool);
-        }
-        if let Some(tex) = self.default_texture.take() {
-            tex.destroy(device, &self.texture_descriptor_pool);
+            tex.destroy(device);
         }
         self.pass_target_cache.destroy(device);
 
@@ -192,15 +180,14 @@ impl VulkanBridge {
         self.command_pool.destroy(device);
         self.in_flight_fence.destroy(device);
 
-        self.texture_descriptor_pool.destroy(device);
         self.general_descriptor_pool.destroy(device);
         self.storage_descriptor_pool.destroy(device);
 
         for (_, bgl) in self.bind_group_layouts.drain() {
             bgl.layout.destroy(device);
         }
-        self.texture_set_layout.destroy(device);
         self.empty_set_layout.destroy(device);
+        self.fallback_sampler.destroy(device);
 
         self.device.destroy();
         self.instance.destroy();
@@ -214,6 +201,10 @@ impl VulkanBridge {
                     self.current_frame_index = idx as u32;
                     let slot = &self.frame_slots[self.current_frame_index as usize];
                     slot.wait_and_reset(self.device.raw())?;
+                    self.deferred_delete.process_frame(
+                        self.device.raw(),
+                        self.current_frame_index as usize,
+                    );
                     unsafe {
                         self.device.raw().logical_device().reset_command_buffer(
                             slot.command_buffer.handle(),

@@ -172,8 +172,10 @@ impl VulkanBridge {
         };
 
         let color_final_layout = color_final_layout(pass.color_target, target_role);
+        let vk_color_load = map_color_load(pass.color_load);
         let config = RenderPassConfig {
-            color_load: map_color_load(pass.color_load),
+            color_load: vk_color_load,
+            color_initial_layout: color_initial_layout(vk_color_load),
             color_final_layout,
             depth_load: depth_format.map(|_| map_depth_load(depth_load)),
             depth_store: if depth_stored {
@@ -181,6 +183,9 @@ impl VulkanBridge {
             } else {
                 vk::AttachmentStoreOp::DONT_CARE
             },
+            depth_initial_layout: depth_format
+                .map(|_| depth_initial_layout(map_depth_load(depth_load)))
+                .unwrap_or(vk::ImageLayout::UNDEFINED),
         };
 
         match pass.color_target {
@@ -329,5 +334,19 @@ fn map_depth_load(load: DepthAttachmentLoad) -> vk::AttachmentLoadOp {
         DepthAttachmentLoad::Clear => vk::AttachmentLoadOp::CLEAR,
         DepthAttachmentLoad::Load => vk::AttachmentLoadOp::LOAD,
         DepthAttachmentLoad::None => vk::AttachmentLoadOp::DONT_CARE,
+    }
+}
+
+fn color_initial_layout(load: vk::AttachmentLoadOp) -> vk::ImageLayout {
+    match load {
+        vk::AttachmentLoadOp::LOAD => vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        _ => vk::ImageLayout::UNDEFINED,
+    }
+}
+
+fn depth_initial_layout(load: vk::AttachmentLoadOp) -> vk::ImageLayout {
+    match load {
+        vk::AttachmentLoadOp::LOAD => vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        _ => vk::ImageLayout::UNDEFINED,
     }
 }

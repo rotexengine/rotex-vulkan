@@ -1,8 +1,14 @@
 use super::buffer::RotexBuffer;
 use super::device::Device;
+use super::image::RotexImage;
 
 pub enum DeferredResource {
     Buffer(RotexBuffer),
+    Image(RotexImage),
+    Mesh {
+        vertex: RotexBuffer,
+        index: RotexBuffer,
+    },
 }
 
 pub struct DeferredDeleteQueue {
@@ -27,6 +33,11 @@ impl DeferredDeleteQueue {
                 let (_, resource) = self.pending.swap_remove(index);
                 match resource {
                     DeferredResource::Buffer(buffer) => buffer.destroy(device),
+                    DeferredResource::Image(image) => image.destroy(device),
+                    DeferredResource::Mesh { vertex, index } => {
+                        vertex.destroy(device);
+                        index.destroy(device);
+                    }
                 }
             } else {
                 index += 1;
@@ -38,6 +49,11 @@ impl DeferredDeleteQueue {
         for (_, resource) in self.pending.drain(..) {
             match resource {
                 DeferredResource::Buffer(buffer) => buffer.destroy(device),
+                DeferredResource::Image(image) => image.destroy(device),
+                DeferredResource::Mesh { vertex, index } => {
+                    vertex.destroy(device);
+                    index.destroy(device);
+                }
             }
         }
     }

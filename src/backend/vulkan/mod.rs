@@ -16,7 +16,7 @@ mod sync;
 pub use buffer::RotexBuffer;
 pub use command::{CommandBuffer, CommandPool};
 pub use compute_pipeline::ComputePipeline;
-pub use deferred_delete::DeferredDeleteQueue;
+pub use deferred_delete::{DeferredDeleteQueue, DeferredResource};
 pub use descriptor::{DescriptorPool, DescriptorSet};
 pub use descriptor_pool_manager::{general_pool_sizes, storage_pool_sizes};
 pub use descriptor_pool_manager::DescriptorPoolManager;

@@ -204,6 +204,27 @@ impl CommandBuffer {
         }
     }
 
+    pub fn copy_buffer(
+        &self,
+        device: &Device,
+        src: vk::Buffer,
+        dst: vk::Buffer,
+        size: vk::DeviceSize,
+    ) {
+        let region = vk::BufferCopy::default()
+            .src_offset(0)
+            .dst_offset(0)
+            .size(size);
+        unsafe {
+            device.logical_device().cmd_copy_buffer(
+                self.handle,
+                src,
+                dst,
+                &[region],
+            );
+        }
+    }
+
     fn infer_state(layout: vk::ImageLayout) -> (vk::AccessFlags, vk::PipelineStageFlags) {
         match layout {
             vk::ImageLayout::UNDEFINED => (

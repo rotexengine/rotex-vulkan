@@ -2,8 +2,8 @@
 use ash::vk;
 
 use crate::backend::vulkan::{
-    ComputePipeline, DescriptorPool, DescriptorSet, Device, Framebuffer, GraphicsPipeline,
-    GraphicsPipelineLayout, RenderPass, RotexBuffer, RotexImage, RotexSampler, Semaphore,
+    ComputePipeline, Device, Framebuffer, GraphicsPipeline,
+    GraphicsPipelineLayout, RenderPass, RotexBuffer, RotexImage, Semaphore,
     VulkanSurface, VulkanSwapchain,
 };
 use rotex_types::resource::{
@@ -48,14 +48,10 @@ pub(super) struct MaterialResource {
 pub(super) struct TextureResource {
     pub(super) descriptor: TextureDescriptor,
     pub(super) image: RotexImage,
-    pub(super) sampler: RotexSampler,
-    pub(super) descriptor_set: DescriptorSet,
 }
 
 impl TextureResource {
-    pub(super) fn destroy(self, device: &Device, descriptor_pool: &DescriptorPool) {
-        let _ = descriptor_pool.free_sets(device, &[self.descriptor_set]);
-        self.sampler.destroy(device);
+    pub(super) fn destroy(self, device: &Device) {
         self.image.destroy(device);
     }
 }
