@@ -22,7 +22,7 @@ enum ColorTargetKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum TargetPassRole {
+pub enum TargetPassRole {
     Intermediate,
     Terminal,
 }
