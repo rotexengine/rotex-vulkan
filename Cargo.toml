@@ -7,7 +7,7 @@ description = "A Vulkan backend for rotex_core"
 repository = "https://github.com/rotexengine/rotex-vulkan"
 
 [dependencies]
-rotex-core = { path = "../rotex-core", version = "0.1.2" }
+rotex-core = { version = "0.1.2" }
 rotex-types = { version = "0.1.1" }
 ash = "0.38.0"
 ash-window = "0.13.0"
