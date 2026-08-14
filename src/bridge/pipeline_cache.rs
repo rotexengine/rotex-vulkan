@@ -2,6 +2,7 @@ use std::ffi::CString;
 
 use ash::vk;
 
+use super::types::{DepthMode, MaterialPipelineKey, VertexLayoutId};
 use super::{VulkanBridge, surface_not_attached_error};
 use crate::backend::vulkan::{
     ColorBlendAttachmentState, ColorBlendState, DepthStencilState, GraphicsPipelineBuilder,
@@ -10,7 +11,6 @@ use crate::backend::vulkan::{
 };
 use crate::error::{Error, ErrorKind};
 use rotex_types::resource::{MaterialDescriptor, MaterialId, VertexBufferLayout, VertexFormat};
-use super::types::{DepthMode, MaterialPipelineKey, VertexLayoutId};
 
 impl VulkanBridge {
     pub(super) fn create_pipeline_for_material(
@@ -22,10 +22,14 @@ impl VulkanBridge {
         depth_mode: DepthMode,
     ) -> Result<super::types::MaterialPipeline, Error> {
         let vert_bytes = material.shaders.vertex.spirv_bytes().ok_or_else(|| {
-            Error::fatal(ErrorKind::Unsupported("Vertex shader has no SPIR-V payload"))
+            Error::fatal(ErrorKind::Unsupported(
+                "Vertex shader has no SPIR-V payload",
+            ))
         })?;
         let frag_bytes = material.shaders.fragment.spirv_bytes().ok_or_else(|| {
-            Error::fatal(ErrorKind::Unsupported("Fragment shader has no SPIR-V payload"))
+            Error::fatal(ErrorKind::Unsupported(
+                "Fragment shader has no SPIR-V payload",
+            ))
         })?;
         let vert_words = spv_bytes_to_words(vert_bytes);
         let frag_words = spv_bytes_to_words(frag_bytes);
@@ -34,16 +38,18 @@ impl VulkanBridge {
             rotex_types::CullMode::Front => vk::CullModeFlags::FRONT,
             rotex_types::CullMode::Back => vk::CullModeFlags::BACK,
         };
-        let vertex_entry = CString::new(material.shaders.vertex.entry_point.as_str()).map_err(|_| {
-            Error::fatal(ErrorKind::Unsupported(
-                "Vertex shader entry contains interior null byte",
-            ))
-        })?;
-        let fragment_entry = CString::new(material.shaders.fragment.entry_point.as_str()).map_err(|_| {
-            Error::fatal(ErrorKind::Unsupported(
-                "Fragment shader entry contains interior null byte",
-            ))
-        })?;
+        let vertex_entry =
+            CString::new(material.shaders.vertex.entry_point.as_str()).map_err(|_| {
+                Error::fatal(ErrorKind::Unsupported(
+                    "Vertex shader entry contains interior null byte",
+                ))
+            })?;
+        let fragment_entry =
+            CString::new(material.shaders.fragment.entry_point.as_str()).map_err(|_| {
+                Error::fatal(ErrorKind::Unsupported(
+                    "Fragment shader entry contains interior null byte",
+                ))
+            })?;
         let vert = ShaderModule::new(self.device.raw(), &vert_words)?;
         let frag = ShaderModule::new(self.device.raw(), &frag_words)?;
         let vk_layouts = super::bindings::build_material_set_layouts(
@@ -141,7 +147,9 @@ impl VulkanBridge {
         let pipeline = self
             .material_pipelines
             .get(&pipeline_key)
-            .ok_or(Error::fatal(ErrorKind::Unsupported("pipeline missing after creation")))?;
+            .ok_or(Error::fatal(ErrorKind::Unsupported(
+                "pipeline missing after creation",
+            )))?;
         Ok((pipeline.pipeline.handle(), pipeline.layout.handle()))
     }
 
@@ -176,13 +184,12 @@ fn vertex_input_descriptor(layout: &VertexBufferLayout) -> Result<VertexInputDes
         rotex_types::VertexStepMode::Vertex => vk::VertexInputRate::VERTEX,
         rotex_types::VertexStepMode::Instance => vk::VertexInputRate::INSTANCE,
     };
-    let mut descriptor = VertexInputDescriptor::default().with_binding(
-        vk::VertexInputBindingDescription {
+    let mut descriptor =
+        VertexInputDescriptor::default().with_binding(vk::VertexInputBindingDescription {
             binding: 0,
             stride: layout.array_stride as u32,
             input_rate,
-        },
-    );
+        });
 
     for attribute in &layout.attributes {
         if attribute.offset > u32::MAX as u64 {

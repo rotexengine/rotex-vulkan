@@ -280,10 +280,7 @@ fn graphics_passes<'a>(
     })
 }
 
-fn target_pass_role(
-    remaining_commands: &[RhiCommand],
-    target: PassColorTarget,
-) -> TargetPassRole {
+fn target_pass_role(remaining_commands: &[RhiCommand], target: PassColorTarget) -> TargetPassRole {
     let has_later = graphics_passes(remaining_commands).any(|later| later.color_target == target);
     if has_later {
         TargetPassRole::Intermediate

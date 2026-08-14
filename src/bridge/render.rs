@@ -2,7 +2,7 @@ use ash::vk;
 
 use crate::backend::vulkan::{
     Device, Framebuffer, FramebufferBuilder, ImageDescriptor, RenderPass, RenderPassBuilder,
-    RotexImage, Swapchain, SubpassBlueprint,
+    RotexImage, SubpassBlueprint, Swapchain,
 };
 use crate::core::Instance;
 use crate::error::{Error, ErrorKind, vk_error};
@@ -92,9 +92,11 @@ pub(super) fn build_texture_framebuffer(
     if let Some(depth) = depth_image {
         builder = builder.with_attachment(depth.view());
     }
-    Ok(vec![builder
-        .with_extent(width, height)
-        .build(device, render_pass)?])
+    Ok(vec![
+        builder
+            .with_extent(width, height)
+            .build(device, render_pass)?,
+    ])
 }
 
 pub(super) fn build_framebuffers(

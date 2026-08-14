@@ -216,12 +216,9 @@ impl CommandBuffer {
             .dst_offset(0)
             .size(size);
         unsafe {
-            device.logical_device().cmd_copy_buffer(
-                self.handle,
-                src,
-                dst,
-                &[region],
-            );
+            device
+                .logical_device()
+                .cmd_copy_buffer(self.handle, src, dst, &[region]);
         }
     }
 
@@ -317,8 +314,12 @@ impl CommandPool {
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
             .queue_family_index(graphics_queue.family_index);
 
-        let handle = unsafe { device.logical_device().create_command_pool(&pool_info, None) }
-            .map_err(vk_error)?;
+        let handle = unsafe {
+            device
+                .logical_device()
+                .create_command_pool(&pool_info, None)
+        }
+        .map_err(vk_error)?;
 
         Ok(Self { handle })
     }
@@ -333,8 +334,12 @@ impl CommandPool {
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(count);
 
-        let handles = unsafe { device.logical_device().allocate_command_buffers(&alloc_info) }
-            .map_err(vk_error)?;
+        let handles = unsafe {
+            device
+                .logical_device()
+                .allocate_command_buffers(&alloc_info)
+        }
+        .map_err(vk_error)?;
 
         Ok(handles
             .into_iter()
@@ -344,7 +349,9 @@ impl CommandPool {
 
     pub fn destroy(&self, device: &Device) {
         unsafe {
-            device.logical_device().destroy_command_pool(self.handle, None);
+            device
+                .logical_device()
+                .destroy_command_pool(self.handle, None);
         }
     }
 }

@@ -23,8 +23,12 @@ impl VulkanBridge {
         let surface = self.instance.create_surface_from_raw(raw_surface);
         let extent = super::init::to_vk_extent(surface_descriptor.extent);
         let swapchain = surface.create_swapchain(&self.instance, &self.device, extent)?;
-        let color_targets =
-            Self::create_targets(self.instance.raw(), self.device.raw(), swapchain.raw(), false)?;
+        let color_targets = Self::create_targets(
+            self.instance.raw(),
+            self.device.raw(),
+            swapchain.raw(),
+            false,
+        )?;
         let image_available = Semaphore::new(self.device.raw())?;
         let render_finished =
             Self::create_render_finished(self.device.raw(), swapchain.raw().images().len())?;
@@ -162,7 +166,6 @@ impl VulkanBridge {
         }
         Err(surface_not_attached_error())
     }
-
 
     pub(super) fn destroy_surface_state(&mut self) {
         if let Some(state) = self.surface_state.take() {

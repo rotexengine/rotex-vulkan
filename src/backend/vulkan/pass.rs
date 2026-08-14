@@ -87,7 +87,8 @@ impl RenderPassBuilder {
             all_depth_refs.push(depth_ref);
         }
 
-        let mut vk_subpasses: Vec<vk::SubpassDescription> = Vec::with_capacity(self.subpasses.len());
+        let mut vk_subpasses: Vec<vk::SubpassDescription> =
+            Vec::with_capacity(self.subpasses.len());
 
         for i in 0..self.subpasses.len() {
             let mut subpass_desc = vk::SubpassDescription::default()

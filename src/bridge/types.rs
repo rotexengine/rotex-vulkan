@@ -2,9 +2,8 @@
 use ash::vk;
 
 use crate::backend::vulkan::{
-    ComputePipeline, Device, Framebuffer, GraphicsPipeline,
-    GraphicsPipelineLayout, RenderPass, RotexBuffer, RotexImage, Semaphore,
-    VulkanSurface, VulkanSwapchain,
+    ComputePipeline, Device, Framebuffer, GraphicsPipeline, GraphicsPipelineLayout, RenderPass,
+    RotexBuffer, RotexImage, Semaphore, VulkanSurface, VulkanSwapchain,
 };
 use rotex_types::resource::{
     ComputePipelineDescriptor, MaterialDescriptor, MaterialId, TextureDescriptor,

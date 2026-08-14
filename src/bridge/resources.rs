@@ -58,10 +58,13 @@ impl VulkanBridge {
             ),
         )?;
 
-        Ok((super::types::TextureResource {
-            descriptor: desc.clone(),
-            image,
-        }, staging_buffer))
+        Ok((
+            super::types::TextureResource {
+                descriptor: desc.clone(),
+                image,
+            },
+            staging_buffer,
+        ))
     }
 
     fn upload_staging_batch(
@@ -79,14 +82,17 @@ impl VulkanBridge {
                 self.command_buffer.handle(),
                 vk::CommandBufferResetFlags::empty(),
             )
-        }.map_err(vk_error)?;
+        }
+        .map_err(vk_error)?;
         self.command_buffer.begin(
             self.device.raw(),
             vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
         )?;
 
         for item in textures {
-            let tex_res = self.textures.get_mut(&item.id)
+            let tex_res = self
+                .textures
+                .get_mut(&item.id)
                 .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
             tex_res.image.transition_layout(
                 self.device.raw(),
@@ -108,7 +114,9 @@ impl VulkanBridge {
         }
 
         for item in buffers {
-            let mesh = self.meshes.get(&item.id)
+            let mesh = self
+                .meshes
+                .get(&item.id)
                 .ok_or(Error::fatal(ErrorKind::NoCompatibleDevice))?;
             let dest = if item.is_vertex {
                 mesh.vertex_buffer.handle()
@@ -133,7 +141,8 @@ impl VulkanBridge {
                 &[submit],
                 self.in_flight_fence.handle(),
             )
-        }.map_err(vk_error)?;
+        }
+        .map_err(vk_error)?;
         self.in_flight_fence.wait(self.device.raw(), u64::MAX)?;
         Ok(())
     }
@@ -142,7 +151,14 @@ impl VulkanBridge {
         &self,
         desc: &MeshDescriptor,
         vertex_layout_id: VertexLayoutId,
-    ) -> Result<(super::types::MeshResource, Option<RotexBuffer>, Option<RotexBuffer>), Error> {
+    ) -> Result<
+        (
+            super::types::MeshResource,
+            Option<RotexBuffer>,
+            Option<RotexBuffer>,
+        ),
+        Error,
+    > {
         if desc.index_count == 0 {
             return Err(Error::fatal(ErrorKind::NoCompatibleDevice));
         }
@@ -200,13 +216,17 @@ impl VulkanBridge {
             Some(staging)
         };
 
-        Ok((super::types::MeshResource {
-            vertex_buffer,
-            index_buffer,
-            index_type,
-            index_count: desc.index_count,
-            vertex_layout_id,
-        }, vertex_staging, index_staging))
+        Ok((
+            super::types::MeshResource {
+                vertex_buffer,
+                index_buffer,
+                index_type,
+                index_count: desc.index_count,
+                vertex_layout_id,
+            },
+            vertex_staging,
+            index_staging,
+        ))
     }
 
     pub fn create_resources(
@@ -227,7 +247,8 @@ impl VulkanBridge {
                     let vertex_size = vertex_data_len as vk::DeviceSize;
                     let index_size = mesh.index_data.len() as vk::DeviceSize;
                     validate_vertex_layout(&mesh.vertex_streams[0].layout, vertex_data_len)?;
-                    let vertex_layout_id = self.intern_vertex_layout(&mesh.vertex_streams[0].layout)?;
+                    let vertex_layout_id =
+                        self.intern_vertex_layout(&mesh.vertex_streams[0].layout)?;
                     let id = MeshId(id);
                     let (resource, vertex_staging, index_staging) =
                         self.create_mesh_allocation(&mesh, vertex_layout_id)?;
@@ -264,8 +285,12 @@ impl VulkanBridge {
                 }
                 ResourceCreateDescriptor::Material { id, material } => {
                     let id = MaterialId(id);
-                    self.materials
-                        .insert(id, super::types::MaterialResource { descriptor: material });
+                    self.materials.insert(
+                        id,
+                        super::types::MaterialResource {
+                            descriptor: material,
+                        },
+                    );
                     handles.push(ResourceHandle::Material(id));
                 }
                 ResourceCreateDescriptor::Buffer { id, buffer: buf } => {
@@ -282,38 +307,57 @@ impl VulkanBridge {
                     if let Some(data) = &buf.initial_data {
                         write_bytes(self.device.raw(), &buffer, data)?;
                     }
-                    self.buffers.insert(id, super::types::BufferResource {
-                        buffer,
-                        size: buf.size,
-                    });
+                    self.buffers.insert(
+                        id,
+                        super::types::BufferResource {
+                            buffer,
+                            size: buf.size,
+                        },
+                    );
                     handles.push(ResourceHandle::Buffer(id));
                 }
                 ResourceCreateDescriptor::BindGroupLayout { id, layout } => {
                     let id = BindGroupLayoutId(id);
                     let vk_layout = build_set_layout(self.device.raw(), &layout)?;
-                    self.bind_group_layouts.insert(id, super::types::BindGroupLayoutResource {
-                        layout: vk_layout,
-                        desc: layout,
-                    });
+                    self.bind_group_layouts.insert(
+                        id,
+                        super::types::BindGroupLayoutResource {
+                            layout: vk_layout,
+                            desc: layout,
+                        },
+                    );
                     handles.push(ResourceHandle::BindGroupLayout(id));
                 }
                 ResourceCreateDescriptor::BindGroup { id, group: bg } => {
                     let id = BindGroupId(id);
-                    let layout = self.bind_group_layouts.get(&bg.layout)
-                        .ok_or(Error::fatal(ErrorKind::Unsupported("bind group layout not found")))?;
-                    let sets = self.general_descriptor_pool.allocate_sets(
-                        self.device.raw(),
-                        &[layout.layout.handle()],
-                    )?;
-                    let set = sets.into_iter().next()
-                        .ok_or(Error::fatal(ErrorKind::Unsupported("failed to allocate descriptor set")))?;
+                    let layout = self.bind_group_layouts.get(&bg.layout).ok_or(Error::fatal(
+                        ErrorKind::Unsupported("bind group layout not found"),
+                    ))?;
+                    let sets = self
+                        .general_descriptor_pool
+                        .allocate_sets(self.device.raw(), &[layout.layout.handle()])?;
+                    let set =
+                        sets.into_iter()
+                            .next()
+                            .ok_or(Error::fatal(ErrorKind::Unsupported(
+                                "failed to allocate descriptor set",
+                            )))?;
                     for entry in &bg.entries {
                         match entry {
-                            BindGroupEntryDescriptor::Buffer { binding, buffer, offset, size } => {
-                                let buf_res = self.buffers.get(buffer)
-                                    .ok_or(Error::fatal(ErrorKind::Unsupported("buffer not found")))?;
+                            BindGroupEntryDescriptor::Buffer {
+                                binding,
+                                buffer,
+                                offset,
+                                size,
+                            } => {
+                                let buf_res = self.buffers.get(buffer).ok_or(Error::fatal(
+                                    ErrorKind::Unsupported("buffer not found"),
+                                ))?;
                                 let range = if *size == 0 { buf_res.size } else { *size };
-                                let desc_type = layout.desc.entries.iter()
+                                let desc_type = layout
+                                    .desc
+                                    .entries
+                                    .iter()
                                     .find(|e| e.binding == *binding)
                                     .map(|e| map_binding_type(e.ty))
                                     .unwrap_or(vk::DescriptorType::STORAGE_BUFFER);
@@ -327,12 +371,9 @@ impl VulkanBridge {
                                 );
                             }
                             BindGroupEntryDescriptor::Texture { binding, texture } => {
-                                let tex_res = self
-                                    .textures
-                                    .get(texture)
-                                    .ok_or(Error::fatal(ErrorKind::Unsupported(
-                                        "texture not found for bind group",
-                                    )))?;
+                                let tex_res = self.textures.get(texture).ok_or(Error::fatal(
+                                    ErrorKind::Unsupported("texture not found for bind group"),
+                                ))?;
                                 set.write_image_sampler(
                                     self.device.raw(),
                                     *binding,
@@ -343,9 +384,12 @@ impl VulkanBridge {
                             }
                         }
                     }
-                    self.bind_groups.insert(id, super::types::BindGroupResource {
-                        descriptor_set: set,
-                    });
+                    self.bind_groups.insert(
+                        id,
+                        super::types::BindGroupResource {
+                            descriptor_set: set,
+                        },
+                    );
                     handles.push(ResourceHandle::BindGroup(id));
                 }
                 ResourceCreateDescriptor::ComputePipeline { id, pipeline } => {
@@ -370,14 +414,16 @@ impl VulkanBridge {
         Ok(CreatedResources { handles })
     }
 
-    pub fn update_resources(
-        &mut self,
-        descriptor: ResourceBatchUpdate,
-    ) -> Result<(), Error> {
+    pub fn update_resources(&mut self, descriptor: ResourceBatchUpdate) -> Result<(), Error> {
         let mut texture_staging = Vec::new();
         let mut mesh_staging = Vec::new();
-        let mut deferred_textures: Vec<(TextureId, crate::backend::vulkan::RotexImage)> = Vec::new();
-        let mut deferred_meshes: Vec<(MeshId, crate::backend::vulkan::RotexBuffer, crate::backend::vulkan::RotexBuffer)> = Vec::new();
+        let mut deferred_textures: Vec<(TextureId, crate::backend::vulkan::RotexImage)> =
+            Vec::new();
+        let mut deferred_meshes: Vec<(
+            MeshId,
+            crate::backend::vulkan::RotexBuffer,
+            crate::backend::vulkan::RotexBuffer,
+        )> = Vec::new();
 
         for item in descriptor.updates {
             match item {
@@ -482,23 +528,25 @@ impl VulkanBridge {
 
         let frame = self.current_frame_index as usize;
         for (_, image) in deferred_textures {
-            self.deferred_delete
-                .defer_after_frame(frame, crate::backend::vulkan::DeferredResource::Image(image));
+            self.deferred_delete.defer_after_frame(
+                frame,
+                crate::backend::vulkan::DeferredResource::Image(image),
+            );
         }
         for (_, vertex, index) in deferred_meshes {
             self.deferred_delete.defer_after_frame(
                 frame,
-                crate::backend::vulkan::DeferredResource::Mesh {
-                    vertex,
-                    index,
-                },
+                crate::backend::vulkan::DeferredResource::Mesh { vertex, index },
             );
         }
 
         Ok(())
     }
 
-    fn intern_vertex_layout(&mut self, layout: &VertexBufferLayout) -> Result<VertexLayoutId, Error> {
+    fn intern_vertex_layout(
+        &mut self,
+        layout: &VertexBufferLayout,
+    ) -> Result<VertexLayoutId, Error> {
         let layout_id = compute_vertex_layout_id(layout);
         if let Some(existing) = self.vertex_layouts.get(&layout_id) {
             if existing != layout {
@@ -534,7 +582,10 @@ fn index_format_size(index_format: IndexFormat) -> usize {
     }
 }
 
-fn validate_vertex_layout(layout: &VertexBufferLayout, vertex_data_len: usize) -> Result<(), Error> {
+fn validate_vertex_layout(
+    layout: &VertexBufferLayout,
+    vertex_data_len: usize,
+) -> Result<(), Error> {
     if layout.array_stride == 0 {
         return Err(Error::fatal(ErrorKind::Unsupported(
             "Vertex layout stride must be greater than zero",

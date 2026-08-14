@@ -52,7 +52,9 @@ pub fn build_material_set_layouts(
     build_set_layouts_from_abstract_layout(device, layout)
 }
 
-fn map_layout_entry(entry: &BindGroupLayoutEntry) -> Result<vk::DescriptorSetLayoutBinding<'_>, Error> {
+fn map_layout_entry(
+    entry: &BindGroupLayoutEntry,
+) -> Result<vk::DescriptorSetLayoutBinding<'_>, Error> {
     Ok(vk::DescriptorSetLayoutBinding::default()
         .binding(entry.binding)
         .descriptor_type(map_binding_type(entry.ty))
@@ -83,9 +85,7 @@ pub fn map_shader_stages(stages: ShaderStageFlags) -> vk::ShaderStageFlags {
     flags
 }
 
-pub fn map_memory_location(
-    location: rotex_types::MemoryLocation,
-) -> vk::MemoryPropertyFlags {
+pub fn map_memory_location(location: rotex_types::MemoryLocation) -> vk::MemoryPropertyFlags {
     match location {
         rotex_types::MemoryLocation::CpuToGpu => {
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT

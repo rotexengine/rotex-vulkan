@@ -5,17 +5,15 @@ use ash::vk;
 
 use super::VulkanBridge;
 use crate::backend::vulkan::{
-    general_pool_sizes, storage_pool_sizes, CommandPool, DeferredDeleteQueue,
-    DescriptorPoolManager, DescriptorSetLayout, DeviceDescriptor, Fence, FrameSlot,
-    QueueCategory as BackendQueueCategory, QueueRequest as BackendQueueRequest, RotexSampler,
-    SamplerDescriptor, VulkanInstance,
+    CommandPool, DeferredDeleteQueue, DescriptorPoolManager, DescriptorSetLayout, DeviceDescriptor,
+    Fence, FrameSlot, QueueCategory as BackendQueueCategory, QueueRequest as BackendQueueRequest,
+    RotexSampler, SamplerDescriptor, VulkanInstance, general_pool_sizes, storage_pool_sizes,
 };
 use crate::core::InstanceOptions;
 use crate::error::{Error, ErrorKind};
 use rotex_types::{
     DeviceDescriptor as FrontendDeviceDescriptor, DeviceFeatures as FrontendDeviceFeatures,
-    Extent2D as FrontendExtent2D, InstanceDescriptor as FrontendInstanceDescriptor,
-    QueueCategory,
+    Extent2D as FrontendExtent2D, InstanceDescriptor as FrontendInstanceDescriptor, QueueCategory,
 };
 
 const FRAMES_IN_FLIGHT: u32 = 2;
@@ -48,7 +46,11 @@ impl VulkanBridge {
         let instance = VulkanInstance::new(&options, &extension_ptrs)?;
         let backend_desc = DeviceDescriptor {
             enable_swapchain: device_descriptor.enable_swapchain,
-            queues: device_descriptor.queues.into_iter().map(map_queue_request).collect(),
+            queues: device_descriptor
+                .queues
+                .into_iter()
+                .map(map_queue_request)
+                .collect(),
             required_features: map_device_features(device_descriptor.required_features),
         };
         let device = instance.request_device(backend_desc)?;
